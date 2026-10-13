@@ -5,6 +5,10 @@ Phone-powered cardboard creations for kids. Build something out of cardboard, pu
 ## Creations
 
 ### 👀 Eyes (`/eyes/`)
+The whole interface is landscape. The first screen asks kids to turn the phone sideways and lock rotation.
+If the phone is locked in portrait (iPhone's rotation lock only locks portrait), the page rotates itself and
+detects which way the phone is turned; use **⇅ Flip** on the first screen if it comes out upside down.
+
 1. Pick one of 6 pairs of eyes (Classic, Googly, Cat, Robot, Sparkly, Monster).
 2. Pick a face/background color.
 3. Press **Go!** — tilt the phone and the pupils roll toward the low side; shake it and the eyes get confused (eyes spin, eyebrows go up, question marks float).
@@ -15,7 +19,7 @@ Controls while playing:
 - **Hold ⚙** (top-left) – go back and change eyes
 - On a computer: move the mouse to look around, press **Space** to get confused
 
-Tips: turn on rotation lock on the phone, and hold it in the position it will sit in the creation when pressing Go (that becomes "looking straight").
+Tip: hold it in the position it will sit in the creation when pressing Go (that becomes "looking straight").
 
 ## Hosting on GitHub Pages
 Settings → Pages → Source: **Deploy from a branch** → Branch: `main`, folder `/ (root)` → Save.
