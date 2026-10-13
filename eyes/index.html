@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#fff8ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Reacto · Eyes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#1f1a17; --cream:#fff8ec; --pink:#ff5d8f; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; background:var(--cream); color:var(--ink);
+    font-family:'Baloo 2', system-ui, sans-serif; overscroll-behavior:none; -webkit-user-select:none; user-select:none; }
+  .screen { position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+    overflow-y:auto; padding:max(16px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom)); }
+  .screen.on { display:flex; }
+  h1 { font-size:clamp(30px, 7vw, 46px); line-height:1; margin:10px 0 4px; font-weight:800; text-align:center; }
+  .sub { font-size:18px; opacity:.7; margin:0 0 16px; text-align:center; }
+  .step { font-weight:800; font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:var(--pink); margin-top:6px; }
+
+  .grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; width:100%; max-width:760px; }
+  @media (min-width:560px) { .grid { grid-template-columns:repeat(3, 1fr); } }
+  .tile { border:4px solid var(--ink); border-radius:22px; background:#fff; padding:8px; cursor:pointer;
+    box-shadow:0 6px 0 var(--ink); transition:transform .08s, box-shadow .08s; font:inherit; color:inherit; }
+  .tile:active { transform:translateY(4px); box-shadow:0 2px 0 var(--ink); }
+  .tile canvas { width:100%; aspect-ratio:16/10; border-radius:14px; display:block; }
+  .tile span { display:block; font-weight:800; font-size:21px; margin-top:4px; }
+  .tile.sel { outline:5px solid var(--pink); outline-offset:3px; }
+
+  .preview { width:100%; max-width:560px; aspect-ratio:16/9; border:4px solid var(--ink); border-radius:24px;
+    box-shadow:0 6px 0 var(--ink); display:block; }
+  .swatches { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; margin:22px 0; max-width:560px; }
+  .sw { width:58px; height:58px; border-radius:50%; border:4px solid var(--ink); cursor:pointer; position:relative;
+    padding:0; box-shadow:0 4px 0 var(--ink); }
+  .sw.sel::after { content:''; position:absolute; inset:-10px; border-radius:50%; border:4px solid var(--pink); }
+  .sw.custom { background:conic-gradient(#ff5d5d,#ffcc33,#5cd65c,#2ec4b6,#4d8dff,#b86bff,#ff5d8f,#ff5d5d); overflow:hidden; }
+  .sw.custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; border:0; padding:0; }
+
+  .row { display:flex; gap:14px; align-items:center; }
+  .btn { font:inherit; font-weight:800; font-size:22px; border:4px solid var(--ink); border-radius:999px;
+    padding:10px 26px; background:#fff; color:var(--ink); cursor:pointer; box-shadow:0 5px 0 var(--ink); }
+  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 var(--ink); }
+  .btn.go { background:var(--pink); color:#fff; font-size:30px; padding:10px 44px; }
+  .tip { margin-top:16px; font-size:15px; opacity:.65; text-align:center; max-width:420px; }
+
+  #play { padding:0; overflow:hidden; touch-action:none; }
+  #stage { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #gear { position:absolute; top:max(10px, env(safe-area-inset-top)); left:max(10px, env(safe-area-inset-left));
+    width:46px; height:46px; border-radius:50%; border:0; background:rgba(0,0,0,.12); color:rgba(255,255,255,.8);
+    font-size:24px; cursor:pointer; opacity:.45; }
+  #gear svg { position:absolute; inset:-4px; width:54px; height:54px; transform:rotate(-90deg); pointer-events:none; }
+  #gear circle { fill:none; stroke:#fff; stroke-width:4; stroke-dasharray:150; stroke-dashoffset:150; }
+  #gear.holding circle { transition:stroke-dashoffset .7s linear; stroke-dashoffset:0; }
+
+  #toast { position:fixed; left:50%; bottom:max(22px, env(safe-area-inset-bottom)); transform:translate(-50%, 20px);
+    background:var(--ink); color:#fff; font-weight:600; font-size:17px; padding:10px 20px; border-radius:999px;
+    opacity:0; transition:opacity .3s, transform .3s; pointer-events:none; text-align:center; max-width:90vw; z-index:9; }
+  #toast.on { opacity:.92; transform:translate(-50%, 0); }
+</style>
+</head>
+<body>
+
+<section class="screen on" id="pick">
+  <div class="step">Step 1 of 2</div>
+  <h1>Pick your eyes!</h1>
+  <p class="sub">Which eyes should your creation have?</p>
+  <div class="grid" id="grid"></div>
+</section>
+
+<section class="screen" id="color">
+  <div class="step">Step 2 of 2</div>
+  <h1>Pick a color!</h1>
+  <p class="sub">This is your creation's face color.</p>
+  <canvas class="preview" id="preview"></canvas>
+  <div class="swatches" id="swatches"></div>
+  <div class="row">
+    <button class="btn" id="back">← Back</button>
+    <button class="btn go" id="go">Go!</button>
+  </div>
+  <p class="tip">Tip: turn on your phone's rotation lock, then hold it the way it sits in your cardboard creation and press Go.</p>
+</section>
+
+<section class="screen" id="play">
+  <canvas id="stage"></canvas>
+  <button id="gear" aria-label="Hold to change eyes">⚙<svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="24"/></svg></button>
+</section>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  // ---------- settings ----------
+  const STYLES = [
+    { id:'classic', name:'Classic' }, { id:'googly', name:'Googly' }, { id:'cat', name:'Cat' },
+    { id:'robot', name:'Robot' }, { id:'sparkle', name:'Sparkly' }, { id:'monster', name:'Monster' },
+  ];
+  const COLORS = ['#ffcc33','#ff8a4c','#ff5d8f','#b86bff','#4d8dff','#2ec4b6','#5cd65c','#8d6e63','#26303b','#f5efe3'];
+  const INK = '#1f1a17';
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('reacto-eyes-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('reacto-eyes-' + k, JSON.stringify(v)); } catch (e) {} },
+  };
+  const state = { style: store.get('style', 'classic'), color: store.get('color', '#ffcc33') };
+  if (!STYLES.some(s => s.id === state.style)) state.style = 'classic';
+
+  const $ = s => document.querySelector(s);
+  let view = 'pick';
+  function show(id) {
+    view = id;
+    document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === id));
+  }
+  let toastTimer;
+  function toast(msg, ms = 2600) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms);
+  }
+
+  // ---------- drawing ----------
+  function fit(cv) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const r = cv.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    return { w, h };
+  }
+  function lum(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return (0.299 * (n >> 16 & 255) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) / 255;
+  }
+  const circle = (c, x, y, r) => { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); };
+  const shine = (c, x, y, r) => { circle(c, x, y, r); c.fillStyle = 'rgba(255,255,255,.95)'; c.fill(); };
+  function rrect(c, x, y, w, h, r) {
+    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+  function almond(c, r) {
+    c.beginPath(); c.moveTo(-r, 0);
+    c.bezierCurveTo(-r * .45, -r * 1.02, r * .45, -r * 1.02, r, 0);
+    c.bezierCurveTo(r * .45, r * 1.02, -r * .45, r * 1.02, -r, 0); c.closePath();
+  }
+
+  const STY = {
+    classic(c, r, x, y) {
+      circle(c, 0, 0, r); c.fillStyle = '#fff'; c.fill();
+      c.save(); circle(c, 0, 0, r); c.clip();
+      const g = c.createRadialGradient(0, -r * .2, r * .5, 0, 0, r);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.13)');
+      c.fillStyle = g; c.fillRect(-r, -r, 2 * r, 2 * r);
+      const px = x * r * .5, py = y * r * .5;
+      circle(c, px, py, r * .42); c.fillStyle = INK; c.fill();
+      shine(c, px - r * .15, py - r * .15, r * .12); shine(c, px + r * .13, py + r * .12, r * .05);
+      c.restore();
+      circle(c, 0, 0, r); c.lineWidth = r * .07; c.strokeStyle = INK; c.stroke();
+    },
+    googly(c, r, x, y) {
+      circle(c, 0, 0, r); c.fillStyle = '#fff'; c.fill();
+      c.save(); circle(c, 0, 0, r); c.clip();
+      const px = x * r * .42, py = y * r * .42;
+      circle(c, px, py, r * .56); c.fillStyle = '#111'; c.fill();
+      c.beginPath(); c.ellipse(-r * .38, -r * .46, r * .36, r * .16, -.65, 0, Math.PI * 2);
+      c.fillStyle = 'rgba(255,255,255,.75)'; c.fill();
+      c.restore();
+      circle(c, 0, 0, r); c.lineWidth = r * .08; c.strokeStyle = '#d4d4d4'; c.stroke();
+      circle(c, 0, 0, r * 1.04); c.lineWidth = r * .03; c.strokeStyle = INK; c.stroke();
+    },
+    cat(c, r, x, y, side, t, conf) {
+      almond(c, r);
+      const g = c.createRadialGradient(x * r * .2, y * r * .1, 0, 0, 0, r);
+      g.addColorStop(0, '#f6ff86'); g.addColorStop(.45, '#b8e650'); g.addColorStop(1, '#4f9628');
+      c.fillStyle = g; c.fill();
+      c.save(); almond(c, r); c.clip();
+      const px = x * r * .45, py = y * r * .22;
+      c.beginPath(); c.ellipse(px, py, r * (.11 + .3 * conf), r * .62, 0, 0, Math.PI * 2); c.fillStyle = INK; c.fill();
+      shine(c, px - r * .22, py - r * .28, r * .1);
+      c.restore();
+      almond(c, r); c.lineWidth = r * .08; c.lineJoin = 'round'; c.strokeStyle = INK; c.stroke();
+    },
+    robot(c, r, x, y, side, t, conf) {
+      rrect(c, -r, -r * .85, 2 * r, 1.7 * r, r * .32); c.fillStyle = '#17202c'; c.fill();
+      c.save(); rrect(c, -r, -r * .85, 2 * r, 1.7 * r, r * .32); c.clip();
+      const col = conf > .3 ? '#ffb020' : '#38f2ff';
+      const px = x * r * .55, py = y * r * .42;
+      c.shadowColor = col; c.shadowBlur = r * .5;
+      rrect(c, px - r * .3, py - r * .3, r * .6, r * .6, r * .14); c.fillStyle = col; c.fill();
+      c.shadowBlur = 0;
+      rrect(c, px - r * .12, py - r * .2, r * .14, r * .14, r * .04); c.fillStyle = 'rgba(255,255,255,.7)'; c.fill();
+      c.fillStyle = 'rgba(0,0,0,.28)';
+      for (let yy = -r; yy < r; yy += r * .11) c.fillRect(-r, yy + (t * r * .2) % (r * .11), 2 * r, r * .035);
+      c.restore();
+      rrect(c, -r, -r * .85, 2 * r, 1.7 * r, r * .32); c.lineWidth = r * .13; c.strokeStyle = '#a9b6c4'; c.stroke();
+      rrect(c, -r * 1.07, -r * .92, 2.14 * r, 1.84 * r, r * .38); c.lineWidth = r * .04; c.strokeStyle = INK; c.stroke();
+    },
+    sparkle(c, r, x, y, side, t) {
+      const lashes = () => {
+        c.lineCap = 'round'; c.lineWidth = r * .08; c.strokeStyle = INK;
+        for (let i = 0; i < 3; i++) {
+          const a = -Math.PI / 2 + side * (.55 + i * .3);
+          const sx = Math.cos(a) * r * .95, sy = Math.sin(a) * r * 1.08;
+          const b = a + side * .35;
+          c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + Math.cos(b) * r * .3, sy + Math.sin(b) * r * .3); c.stroke();
+        }
+      };
+      lashes();
+      c.beginPath(); c.ellipse(0, 0, r * .95, r * 1.08, 0, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill();
+      c.save(); c.beginPath(); c.ellipse(0, 0, r * .95, r * 1.08, 0, 0, Math.PI * 2); c.clip();
+      const ix = x * r * .35, iy = y * r * .4;
+      const g = c.createRadialGradient(ix, iy + r * .25, 0, ix, iy, r * .62);
+      g.addColorStop(0, '#a6ecff'); g.addColorStop(.55, '#4f7bff'); g.addColorStop(1, '#2a2f8f');
+      circle(c, ix, iy, r * .62); c.fillStyle = g; c.fill();
+      c.lineWidth = r * .05; c.strokeStyle = '#1b1650'; c.stroke();
+      circle(c, ix, iy, r * .3); c.fillStyle = '#120f2e'; c.fill();
+      c.beginPath(); c.ellipse(ix - r * .24, iy - r * .27, r * .2, r * .15, -.4, 0, Math.PI * 2);
+      c.fillStyle = 'rgba(255,255,255,.95)'; c.fill();
+      shine(c, ix + r * .22, iy + r * .2, r * .08);
+      const s = r * .1 * (.65 + .35 * Math.sin(t * 4 + side));
+      c.save(); c.translate(ix + r * .2, iy - r * .34); c.rotate(t * .8);
+      c.beginPath(); for (let k = 0; k < 8; k++) { const rad = k % 2 ? s * .35 : s; c.lineTo(Math.cos(k * Math.PI / 4) * rad, Math.sin(k * Math.PI / 4) * rad); }
+      c.closePath(); c.fillStyle = '#fff'; c.fill(); c.restore();
+      c.restore();
+      c.beginPath(); c.ellipse(0, 0, r * .95, r * 1.08, 0, 0, Math.PI * 2); c.lineWidth = r * .07; c.strokeStyle = INK; c.stroke();
+    },
+    monster(c, r, x, y) {
+      circle(c, 0, 0, r); c.fillStyle = '#fff1c1'; c.fill();
+      c.save(); circle(c, 0, 0, r); c.clip();
+      c.strokeStyle = 'rgba(205,35,35,.55)'; c.lineWidth = r * .035; c.lineCap = 'round';
+      for (let k = 0; k < 8; k++) {
+        const a = k * .83 + .3; c.beginPath();
+        for (let s = 0; s <= 6; s++) {
+          const d = r * (1.02 - s * .075), w = Math.sin(s * 2.1 + k) * .06;
+          c.lineTo(Math.cos(a + w) * d, Math.sin(a + w) * d);
+        }
+        c.stroke();
+      }
+      const px = x * r * .48, py = y * r * .48;
+      const g = c.createRadialGradient(px, py, 0, px, py, r * .42);
+      g.addColorStop(0, '#ffd54f'); g.addColorStop(.6, '#ff6f00'); g.addColorStop(1, '#b71c1c');
+      circle(c, px, py, r * .42); c.fillStyle = g; c.fill();
+      circle(c, px, py, r * .19); c.fillStyle = '#000'; c.fill();
+      shine(c, px - r * .14, py - r * .16, r * .09);
+      c.restore();
+      circle(c, 0, 0, r); c.lineWidth = r * .08; c.strokeStyle = '#4a1a1a'; c.stroke();
+    },
+  };
+
+  function drawClosed(c, s, r) {
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-r * .9, 0); c.quadraticCurveTo(0, s === 'robot' ? 0 : r * .45, r * .9, 0);
+    c.lineWidth = r * .1; c.strokeStyle = s === 'robot' ? '#38f2ff' : INK; c.stroke();
+  }
+
+  function drawEye(c, s, cx, cy, r, e, side, t, conf) {
+    c.save(); c.translate(cx, cy);
+    if (s === 'cat') c.rotate(-side * .13);
+    const open = Math.max(0, 1 - e.blink);
+    if (open < .12) drawClosed(c, s, r);
+    else { c.scale(1, open); STY[s](c, r, e.x, e.y, side, t, conf); }
+    c.restore();
+  }
+
+  // eyes: [{x,y,blink},{x,y,blink}], conf 0..1, confT seconds since confusion started
+  function drawScene(c, w, h, style, bg, eyes, t, conf, confT) {
+    c.fillStyle = bg; c.fillRect(0, 0, w, h);
+    const r = Math.min(w * .94 / 4.6, h * .29);
+    const cy = h * .57, sp = r * 1.18;
+    const light = lum(bg) > .55;
+    drawEye(c, style, w / 2 - sp, cy, r, eyes[0], -1, t, conf);
+    drawEye(c, style, w / 2 + sp, cy, r, eyes[1], 1, t, conf);
+    if (conf > .01) {
+      const col = light ? INK : '#fff8ec';
+      for (const side of [-1, 1]) {
+        c.save(); c.globalAlpha = conf;
+        c.translate(w / 2 + side * sp, cy - r * (side < 0 ? 1.48 : 1.2) + r * .15 * (1 - conf));
+        c.rotate(side < 0 ? .25 : -.1);
+        c.beginPath(); c.moveTo(-r * .7, 0); c.quadraticCurveTo(0, -r * (side < 0 ? .25 : .06), r * .7, 0);
+        c.lineWidth = r * .17; c.lineCap = 'round'; c.strokeStyle = col; c.stroke();
+        c.restore();
+      }
+      c.save(); c.globalAlpha = conf;
+      c.font = `800 ${Math.round(r * .62)}px 'Baloo 2', system-ui, sans-serif`;
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+      const marks = [[-.05, 0], [.2, .7], [-.22, 1.3]];
+      marks.forEach(([dx, ph], i) => {
+        const k = ((confT * .9 + ph) % 1.6) / 1.6;
+        const mx = w / 2 + dx * w * .5 + Math.sin(confT * 5 + i) * r * .15;
+        const my = cy - r * 1.05 - k * r * .6;
+        c.save(); c.translate(mx, my); c.rotate(Math.sin(confT * 6 + i * 2) * .25);
+        c.globalAlpha = conf * Math.min(1, (1 - k) * 2.5);
+        c.lineWidth = r * .07; c.strokeStyle = light ? INK : '#000'; c.strokeText('?', 0, 0);
+        c.fillStyle = '#fff'; c.fillText('?', 0, 0);
+        c.restore();
+      });
+      c.restore();
+    }
+  }
+
+  // idle wandering + blinking for previews
+  function idleEyes(t, seed) {
+    const x = Math.sin(t * .9 + seed) * .7, y = Math.cos(t * 1.3 + seed * 2) * .45;
+    const ph = (t + seed * 1.7) % 4.2;
+    const blink = ph < .18 ? (ph < .09 ? ph / .09 : (.18 - ph) / .09) : 0;
+    return [{ x, y, blink }, { x, y, blink }];
+  }
+
+  // ---------- step 1: pick eyes ----------
+  const grid = $('#grid');
+  const tiles = STYLES.map((s, i) => {
+    const b = document.createElement('button');
+    b.className = 'tile' + (s.id === state.style ? ' sel' : '');
+    b.innerHTML = `<canvas></canvas><span>${s.name}</span>`;
+    b.onclick = () => {
+      state.style = s.id; store.set('style', s.id);
+      tiles.forEach(tl => tl.el.classList.toggle('sel', tl.id === s.id));
+      show('color');
+    };
+    grid.appendChild(b);
+    return { id: s.id, el: b, cv: b.querySelector('canvas'), seed: i * 1.37 };
+  });
+
+  // ---------- step 2: pick color ----------
+  const sw = $('#swatches');
+  function markSwatch() {
+    sw.querySelectorAll('.sw').forEach(el => el.classList.toggle('sel',
+      el.dataset.c ? el.dataset.c === state.color : !COLORS.includes(state.color)));
+  }
+  COLORS.forEach(col => {
+    const b = document.createElement('button');
+    b.className = 'sw'; b.style.background = col; b.dataset.c = col; b.setAttribute('aria-label', col);
+    b.onclick = () => { state.color = col; store.set('color', col); markSwatch(); };
+    sw.appendChild(b);
+  });
+  const custom = document.createElement('label');
+  custom.className = 'sw custom'; custom.setAttribute('aria-label', 'Any color');
+  custom.innerHTML = '<input type="color">';
+  const ci = custom.querySelector('input');
+  ci.value = state.color;
+  ci.oninput = () => { state.color = ci.value; store.set('color', ci.value); markSwatch(); };
+  sw.appendChild(custom);
+  markSwatch();
+  $('#back').onclick = () => show('pick');
+
+  // ---------- step 3: play ----------
+  const PHYS = { classic:[140,16], googly:[55,4.5], cat:[160,20], robot:[320,36], sparkle:[130,15], monster:[110,12] };
+  const play = {
+    eyes: [{ x:0, y:0, vx:0, vy:0, blink:0 }, { x:0, y:0, vx:0, vy:0, blink:0 }],
+    conf: 0, confStart: 0, confUntil: 0, nextBlink: 0, blinkStart: -1e9,
+  };
+  const tilt = { x: 0, y: 0 };
+  let sensorAlive = false, D0 = null, calibrateAt = 0, lastD = null;
+  let wakeLock = null;
+
+  function screenAngle() {
+    let a = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle
+          : (typeof window.orientation === 'number' ? window.orientation : 0);
+    return a * Math.PI / 180;
+  }
+
+  // Gravity ("down") vector in screen coordinates (x right, y up, z out of screen), from deviceorientation.
+  window.addEventListener('deviceorientation', e => {
+    if (e.beta == null || e.gamma == null) return;
+    sensorAlive = true;
+    const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
+    const ux = -Math.cos(b) * Math.sin(g), uy = Math.sin(b), uz = Math.cos(b) * Math.cos(g); // "up" in device frame
+    const th = screenAngle(), ct = Math.cos(th), st = Math.sin(th);
+    const D = [-(ux * ct - uy * st), -(ux * st + uy * ct), -uz];
+    lastD = D;
+    if (calibrateAt && performance.now() >= calibrateAt) { D0 = D; calibrateAt = 0; }
+    if (!D0) return;
+    // horizontal axis = screen x; vertical axis ⟂ to the calibrated gravity
+    let V = [0, D0[2], -D0[1]];
+    const vl = Math.hypot(V[1], V[2]);
+    V = vl > .2 ? [0, V[1] / vl, V[2] / vl] : [0, 0, 1];
+    const d = [D[0] - D0[0], D[1] - D0[1], D[2] - D0[2]];
+    const SENS = 2.6;
+    let hx = d[0] * SENS, vy = (d[1] * V[1] + d[2] * V[2]) * SENS;
+    const L = Math.hypot(hx, vy); if (L > 1) { hx /= L; vy /= L; }
+    tilt.x = hx; tilt.y = vy;
+  });
+
+  // Shake detection
+  let shakeHits = [], prevA = null;
+  window.addEventListener('devicemotion', e => {
+    let mag = 0;
+    const a = e.acceleration;
+    if (a && a.x != null) mag = Math.hypot(a.x, a.y, a.z);
+    else if (e.accelerationIncludingGravity && e.accelerationIncludingGravity.x != null) {
+      const g = e.accelerationIncludingGravity;
+      if (prevA) mag = Math.hypot(g.x - prevA.x, g.y - prevA.y, g.z - prevA.z) * .8;
+      prevA = { x: g.x, y: g.y, z: g.z };
+    }
+    if (mag > 14) {
+      const now = performance.now();
+      shakeHits.push(now);
+      shakeHits = shakeHits.filter(tt => now - tt < 900);
+      if (shakeHits.length >= 3) { confuse(); shakeHits = []; }
+    }
+  });
+
+  function confuse() {
+    if (view !== 'play') return;
+    const now = performance.now();
+    if (now < play.confUntil) { play.confUntil = now + 2600; return; }
+    play.confStart = now; play.confUntil = now + 2600;
+    if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40]); } catch (e) {} }
+  }
+
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && view === 'play') keepAwake();
+  });
+  const recal = () => { if (view === 'play') calibrateAt = performance.now() + 500; };
+  if (screen.orientation) screen.orientation.addEventListener('change', recal);
+  window.addEventListener('orientationchange', recal);
+
+  $('#go').onclick = async () => {
+    // Everything that needs the tap gesture is started right away, before awaiting.
+    const el = document.documentElement;
+    try { (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el)?.catch?.(() => {}); } catch (e) {}
+    const asks = [];
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')
+      asks.push(DeviceOrientationEvent.requestPermission().catch(() => 'denied'));
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function')
+      asks.push(DeviceMotionEvent.requestPermission().catch(() => 'denied'));
+    const res = await Promise.all(asks);
+    keepAwake();
+    D0 = null; calibrateAt = performance.now() + 700; tilt.x = tilt.y = 0;
+    play.nextBlink = performance.now() + 1500;
+    document.querySelector('meta[name=theme-color]').setAttribute('content', state.color);
+    show('play');
+    if (res.includes('denied')) toast('Motion is off — the eyes will follow your finger instead', 4000);
+    else toast('Tilt me! Shake me! Double-tap to re-center 👀', 3500);
+    setTimeout(() => { if (!sensorAlive && view === 'play') toast('No tilt sensor here — drag or move the mouse. Space = confused!', 4000); }, 2000);
+  };
+
+  // taps: tap = blink, double-tap = re-center; pointer fallback when no sensor
+  const stage = $('#stage');
+  let lastTap = 0;
+  stage.addEventListener('pointerup', () => {
+    const now = performance.now();
+    play.blinkStart = now;
+    if (now - lastTap < 320) { calibrateAt = now; toast('Looking straight ahead!', 1400); }
+    lastTap = now;
+  });
+  stage.addEventListener('pointermove', e => {
+    if (sensorAlive) return;
+    const r = stage.getBoundingClientRect();
+    let x = (e.clientX - r.left - r.width / 2) / (r.width * .4), y = (e.clientY - r.top - r.height / 2) / (r.height * .4);
+    const L = Math.hypot(x, y); if (L > 1) { x /= L; y /= L; }
+    tilt.x = x; tilt.y = y;
+  });
+  window.addEventListener('keydown', e => { if (e.code === 'Space' && view === 'play') { e.preventDefault(); confuse(); } });
+
+  // hold the gear to leave
+  const gear = $('#gear');
+  let holdTimer = null, held = false;
+  gear.addEventListener('pointerdown', e => {
+    e.stopPropagation(); held = false; gear.classList.add('holding');
+    holdTimer = setTimeout(() => {
+      held = true; gear.classList.remove('holding');
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+      document.querySelector('meta[name=theme-color]').setAttribute('content', '#fff8ec');
+      show('pick');
+    }, 700);
+  });
+  const cancelHold = () => {
+    clearTimeout(holdTimer); gear.classList.remove('holding');
+    if (!held && view === 'play') toast('Hold the ⚙ to change eyes', 1600);
+    held = true;
+  };
+  gear.addEventListener('pointerup', cancelHold);
+  gear.addEventListener('pointerleave', () => { clearTimeout(holdTimer); gear.classList.remove('holding'); });
+
+  function tickPlay(now, dt) {
+    const p = play;
+    const confused = now < p.confUntil;
+    p.conf += ((confused ? 1 : 0) - p.conf) * Math.min(1, dt * 7);
+    const ct = (now - p.confStart) / 1000;
+    const [k, damp] = PHYS[state.style];
+    p.eyes.forEach((e, i) => {
+      let tx = tilt.x, ty = tilt.y;
+      if (confused) {
+        const ang = ct * 7.5 * (i ? 1 : -1) + (i ? Math.PI : 0);
+        tx = Math.cos(ang) * .8; ty = Math.sin(ang) * .8;
+      }
+      e.vx += (k * (tx - e.x) - damp * e.vx) * dt; e.vy += (k * (ty - e.y) - damp * e.vy) * dt;
+      e.x += e.vx * dt; e.y += e.vy * dt;
+      const L = Math.hypot(e.x, e.y);
+      if (L > 1.05) { // bounce off the rim
+        const nx = e.x / L, ny = e.y / L, vn = e.vx * nx + e.vy * ny;
+        e.x = nx * 1.05; e.y = ny * 1.05;
+        if (vn > 0) { e.vx -= 1.5 * vn * nx; e.vy -= 1.5 * vn * ny; }
+      }
+    });
+    if (!confused && now > p.nextBlink) {
+      p.blinkStart = now;
+      p.nextBlink = now + (Math.random() < .2 ? 260 : 2500 + Math.random() * 3500);
+    }
+    const u = (now - p.blinkStart) / 170;
+    const b = u >= 0 && u < 1 ? (u < .5 ? u * 2 : 2 - u * 2) : 0;
+    p.eyes[0].blink = b; p.eyes[1].blink = Math.min(1, b + .35 * p.conf);
+    return ct;
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    const t = now / 1000;
+    if (view === 'pick') {
+      tiles.forEach(tl => {
+        const { w, h } = fit(tl.cv); const c = tl.cv.getContext('2d');
+        drawScene(c, w, h, tl.id, state.color, idleEyes(t, tl.seed), t, 0, 0);
+      });
+    } else if (view === 'color') {
+      const cv = $('#preview'); const { w, h } = fit(cv);
+      drawScene(cv.getContext('2d'), w, h, state.style, state.color, idleEyes(t, 0), t, 0, 0);
+    } else if (view === 'play') {
+      const ct = tickPlay(now, dt);
+      const { w, h } = fit(stage);
+      drawScene(stage.getContext('2d'), w, h, state.style, state.color, play.eyes, t, play.conf, ct);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
