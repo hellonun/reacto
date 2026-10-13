@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#fff8ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Reacto · Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#1f1a17; --cream:#fff8ec; --pink:#ff5d8f; --orange:#ff6a2a; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--cream); color:var(--ink);
+    font-family:'Baloo 2', system-ui, sans-serif; overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none; }
+
+  /* Always laid out landscape; JS rotates #app 90° when the browser is portrait (e.g. iPhone rotation lock). */
+  #app { position:fixed; left:50%; top:50%; transform:translate(-50%, -50%); overflow:hidden; background:var(--cream); container-type:size; }
+  .screen { position:absolute; inset:0; display:none; padding:14px 22px; }
+  .screen.on { display:flex; }
+  #app.rot .screen:not(#play) { padding:14px 40px; }
+
+  h1 { font-size:clamp(26px, 6.5cqh, 40px); line-height:1; margin:0; font-weight:800; }
+  .step { font-weight:800; font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--pink); }
+  .row { display:flex; gap:12px; align-items:center; }
+  .btn { font:inherit; font-weight:800; font-size:20px; border:4px solid var(--ink); border-radius:999px;
+    padding:6px 22px; background:#fff; color:var(--ink); cursor:pointer; box-shadow:0 5px 0 var(--ink); white-space:nowrap; }
+  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 var(--ink); }
+  .btn.go { background:var(--pink); color:#fff; font-size:28px; padding:6px 40px; }
+  .btn.small { font-size:15px; padding:3px 14px; border-width:3px; box-shadow:0 3px 0 var(--ink); }
+
+  /* intro */
+  #intro { align-items:center; justify-content:center; gap:5cqw; }
+  .phoneart { flex:0 0 auto; width:min(34cqh, 30%); aspect-ratio:1; position:relative; }
+  .phone { position:absolute; left:50%; top:50%; width:44%; height:80%; margin:-40% 0 0 -22%;
+    border:5px solid var(--ink); border-radius:16px; background:#ec6a2c; animation:turn 3.2s ease-in-out infinite; overflow:hidden; }
+  .phone::before { content:''; position:absolute; left:22%; right:22%; top:30%; bottom:30%; border-radius:50%;
+    background:#b8c1cb; border:3px solid var(--ink); }
+  .lock { position:absolute; right:0; bottom:4%; font-size:min(10cqh, 44px); animation:pop 3.2s ease-in-out infinite; }
+  @keyframes turn { 0%,15% { transform:rotate(0); } 45%,100% { transform:rotate(-90deg); } }
+  @keyframes pop { 0%,50% { transform:scale(0); } 62% { transform:scale(1.25); } 70%,100% { transform:scale(1); } }
+  .introtext { display:flex; flex-direction:column; gap:1.4cqh; max-width:440px; }
+  .steps { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:.8cqh; font-size:clamp(14px, 4.2cqh, 20px); line-height:1.2; }
+  .steps li { display:flex; gap:10px; align-items:flex-start; }
+  .steps b.n { flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:var(--ink); color:#fff;
+    display:grid; place-items:center; font-size:15px; }
+  .steps small { display:block; opacity:.6; font-size:.76em; }
+
+  /* pick */
+  #pick { flex-direction:column; gap:10px; }
+  .head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  .cards { flex:1; min-height:0; display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
+  .card { min-height:0; display:flex; flex-direction:column; border:4px solid var(--ink); border-radius:20px; background:#fff;
+    padding:7px; cursor:pointer; box-shadow:0 5px 0 var(--ink); transition:transform .08s, box-shadow .08s; font:inherit; color:inherit; text-align:left; }
+  .card:active { transform:translateY(4px); box-shadow:0 1px 0 var(--ink); }
+  .card canvas { flex:1; min-height:0; width:100%; border-radius:13px; display:block; }
+  .card b { display:block; font-size:clamp(16px, 5cqh, 23px); line-height:1.1; margin:5px 4px 0; }
+  .card span { display:block; font-size:clamp(12px, 3.6cqh, 16px); opacity:.65; line-height:1.15; margin:0 4px 2px; }
+
+  /* play */
+  #play { padding:0; touch-action:none; }
+  #stage { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .pbtn { position:absolute; border-radius:50%; cursor:pointer; font:inherit; font-weight:800; color:#fff; touch-action:none; }
+  #power { left:14px; bottom:14px; width:min(96px, 26cqh); height:min(96px, 26cqh); border:5px solid #1d2026;
+    background:radial-gradient(circle at 40% 35%, #ff9455, #ff5a1f 60%, #c83c0c); box-shadow:0 5px 0 #1d2026, 0 0 0 4px rgba(255,255,255,.25);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0; }
+  #power.run { background:radial-gradient(circle at 40% 35%, #7dffa8, #22c45e 60%, #128a3c); }
+  #power:active { transform:translateY(3px); box-shadow:0 2px 0 #1d2026; }
+  #power svg.ico { width:42%; height:42%; }
+  #power .lbl { font-size:min(15px, 4cqh); line-height:1; margin-top:2px; letter-spacing:.04em; }
+  #power svg.ring { position:absolute; inset:-12px; width:calc(100% + 24px); height:calc(100% + 24px); transform:rotate(-90deg); pointer-events:none; }
+  #power svg.ring circle { fill:none; stroke:#ffd23f; stroke-width:6; stroke-linecap:round; stroke-dasharray:289; stroke-dashoffset:289; }
+  #horn { right:14px; bottom:14px; width:min(74px, 20cqh); height:min(74px, 20cqh); border:5px solid #1d2026;
+    background:radial-gradient(circle at 40% 35%, #ffe680, #ffc21a 65%, #d99a00); color:#1d2026; font-size:min(16px, 4.4cqh);
+    box-shadow:0 5px 0 #1d2026; padding:0; }
+  #horn:active { transform:translateY(3px); box-shadow:0 2px 0 #1d2026; }
+  #gear { position:absolute; top:10px; left:10px; width:44px; height:44px; border-radius:50%; border:0;
+    background:rgba(0,0,0,.25); color:rgba(255,255,255,.85); font-size:22px; cursor:pointer; opacity:.5; }
+  #gear svg { position:absolute; inset:-4px; width:52px; height:52px; transform:rotate(-90deg); pointer-events:none; }
+  #gear circle { fill:none; stroke:#fff; stroke-width:4; stroke-dasharray:150; stroke-dashoffset:150; }
+  #gear.holding circle { transition:stroke-dashoffset .7s linear; stroke-dashoffset:0; }
+  #hint { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); background:rgba(20,22,26,.85); color:#fff;
+    font-weight:800; font-size:min(20px, 5.4cqh); padding:6px 20px; border-radius:999px; pointer-events:none; white-space:nowrap;
+    transition:opacity .4s; }
+  #hint.pulse { animation:pulse 1.4s ease-in-out infinite; }
+  #hint.hide { opacity:0; }
+  @keyframes pulse { 50% { transform:translateX(-50%) scale(1.08); } }
+</style>
+</head>
+<body>
+<div id="app">
+
+<section class="screen on" id="intro">
+  <div class="phoneart"><div class="phone"></div><div class="lock">🔒</div></div>
+  <div class="introtext">
+    <h1>Turn me sideways!</h1>
+    <ol class="steps">
+      <li><b class="n">1</b><span>Hold your phone sideways, like this.</span></li>
+      <li><b class="n">2</b><span>Lock the screen rotation.
+        <small>iPhone: swipe down from the top-right corner, tap 🔒 · Android: swipe down, turn off Auto-rotate</small></span></li>
+      <li><b class="n">3</b><span>Turn the volume up! 🔊</span></li>
+    </ol>
+    <div class="row">
+      <button class="btn go" id="start">Start</button>
+      <button class="btn small" id="flip" aria-label="Flip upside down">⇅ Flip</button>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="pick">
+  <div class="head"><span class="step">Pick one</span><h1>Choose your engine!</h1></div>
+  <div class="cards" id="cards"></div>
+</section>
+
+<section class="screen" id="play">
+  <canvas id="stage"></canvas>
+  <div id="hint" class="pulse">Press &amp; hold to start! 🔑</div>
+  <button id="power" class="pbtn" aria-label="Start / stop">
+    <svg class="ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/></svg>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>
+    <span class="lbl">START</span>
+  </button>
+  <button id="horn" class="pbtn" aria-label="Horn">BEEP!</button>
+  <button id="gear" aria-label="Hold to change engine">⚙<svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23"/></svg></button>
+</section>
+
+</div>
+
+<script>
+(() => {
+  const TAU = Math.PI * 2;
+  const $ = s => document.querySelector(s);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('reacto-engine-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('reacto-engine-' + k, JSON.stringify(v)); } catch (e) {} },
+  };
+
+  // ================= screens + always-landscape layout =================
+  let view = 'intro';
+  function show(id) { view = id; document.querySelectorAll('.screen').forEach(el => el.classList.toggle('on', el.id === id)); }
+  const app = $('#app');
+  let side = store.get('side', 90) === -90 ? -90 : 90, uiRot = 0;
+  function layout() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (vw >= vh) { uiRot = 0; app.style.width = vw + 'px'; app.style.height = vh + 'px'; }
+    else { uiRot = side; app.style.width = vh + 'px'; app.style.height = vw + 'px'; }
+    app.style.transform = `translate(-50%, -50%) rotate(${uiRot}deg)`;
+    app.classList.toggle('rot', uiRot !== 0);
+  }
+  function setSide(s) { if (s !== side) { side = s; store.set('side', s); layout(); } }
+  layout();
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', () => setTimeout(layout, 120));
+  window.addEventListener('deviceorientation', e => { // auto-pick which way is up while setting up
+    if (e.gamma == null || view === 'play' || window.innerWidth >= window.innerHeight) return;
+    const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180, ux = -Math.cos(b) * Math.sin(g);
+    if (ux > .6) setSide(90); else if (ux < -.6) setSide(-90);
+  });
+  function goFullscreen() {
+    const el = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    try {
+      const p = (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
+      if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
+    } catch (e) {}
+  }
+  let wakeLock = null;
+  async function keepAwake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && view === 'play') keepAwake();
+    if (document.visibilityState === 'hidden' && eng.mode !== 'off') stopEngine(true);
+  });
+
+  // ================= drawing helpers =================
+  function rr(c, x, y, w, h, r, keep) {
+    if (!keep) c.beginPath();
+    c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+  function box(c, x, y, w, h, r, col) { rr(c, x, y, w, h, r); c.fillStyle = col; c.fill(); }
+  function dot(c, x, y, r, col) { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = col; c.fill(); }
+  function ring(c, x, y, r, w, col) { c.beginPath(); c.arc(x, y, r, 0, TAU); c.lineWidth = w; c.strokeStyle = col; c.stroke(); }
+  function path(c, pts) { c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); }
+  function pipe(c, pts, w, col, edge = 'rgba(0,0,0,.35)') {
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    path(c, pts); c.lineWidth = w + 6; c.strokeStyle = edge; c.stroke();
+    path(c, pts); c.lineWidth = w; c.strokeStyle = col; c.stroke();
+    c.save(); c.translate(-w * .15, -w * .15); path(c, pts); c.lineWidth = w * .25; c.strokeStyle = 'rgba(255,255,255,.22)'; c.stroke(); c.restore();
+  }
+  function hex(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+  function mix(a, b, t) { const A = hex(a), B = hex(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; }
+  function fan(c, x, y, r, n, ang, col, hub) {
+    c.save(); c.translate(x, y); c.rotate(ang);
+    for (let i = 0; i < n; i++) {
+      c.save(); c.rotate(i * TAU / n);
+      c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(r * .35, -r * .42, r * .95, -r * .2);
+      c.quadraticCurveTo(r * 1.02, r * .1, r * .9, r * .2); c.quadraticCurveTo(r * .4, r * .12, 0, 0);
+      c.fillStyle = col; c.fill(); c.restore();
+    }
+    dot(c, 0, 0, r * .24, hub); ring(c, 0, 0, r * .24, 4, 'rgba(0,0,0,.3)'); dot(c, 0, 0, r * .08, 'rgba(0,0,0,.35)');
+    c.restore();
+  }
+  function bay(c, frame, inside) { // bay fills design space 1000x500
+    box(c, -400, -400, 1800, 1300, 0, frame);
+    box(c, 18, 18, 964, 464, 46, inside);
+    rr(c, 18, 18, 964, 464, 46); c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,.25)'; c.stroke();
+  }
+  function puffsDraw(c, s) {
+    for (const p of s.puffs) {
+      const k = p.age / p.life;
+      c.globalAlpha = (1 - k) * p.alpha;
+      dot(c, p.x, p.y, p.r * (0.6 + k * 1.6), p.col);
+    }
+    c.globalAlpha = 1;
+  }
+  function pointOn(pts, d) { // distance d along a polyline
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], L = Math.hypot(x1 - x0, y1 - y0);
+      if (d <= L) return [x0 + (x1 - x0) * d / L, y0 + (y1 - y0) * d / L];
+      d -= L;
+    }
+    return pts[pts.length - 1];
+  }
+  const plen = pts => pts.slice(1).reduce((a, p, i) => a + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+
+  // ================= the three engines (top view, design space 1000 x 500, car front = right) =================
+  // s: { n: 0..1 rpm, ang: spin angle, on, boot: 0..1, shx, shy, t, flow, puffs }
+  function drawV8(c, s) {
+    const n = s.n;
+    bay(c, '#9aa4ae', '#2b2f36');
+    box(c, 60, 150, 200, 200, 30, '#33383f');
+    // radiator
+    box(c, 905, 55, 58, 390, 16, '#7c8692');
+    c.fillStyle = '#5f6873'; for (let y = 75; y < 430; y += 18) c.fillRect(913, y, 42, 7);
+    pipe(c, [[905, 100], [870, 100], [800, 120]], 20, '#4a5058');
+    // fan
+    dot(c, 815, 250, 114, '#202328');
+    fan(c, 815, 250, 100, 5, s.ang * 1.6, '#9aa4ae', '#cfd6dc');
+    c.save(); c.translate(s.shx, s.shy);
+    // exhaust headers (glow when hot)
+    const heat = mix('#9aa4ae', '#ff7a3a', Math.min(1, n * n * .95));
+    for (const sd of [-1, 1]) {
+      const y2 = 250 + sd * 192;
+      pipe(c, [[640, y2], [50, y2]], 30, heat);
+      for (let i = 0; i < 4; i++) {
+        const x = 410 + i * 92;
+        pipe(c, [[x, 250 + sd * 140], [x, 250 + sd * 168], [x - 40, y2]], 20, heat);
+      }
+    }
+    // block + valve covers
+    box(c, 335, 150, 420, 200, 30, '#c84c16');
+    for (const sd of [-1, 1]) {
+      const yc = 250 + sd * 108;
+      box(c, 360, yc - 42, 370, 84, 34, '#ec6a2c');
+      c.fillStyle = 'rgba(255,255,255,.16)'; for (let x = 395; x < 710; x += 26) c.fillRect(x, yc - 26, 9, 52);
+    }
+    // distributor + plug wires
+    const fire = Math.floor(s.ang * 2.2) % 8;
+    c.lineWidth = 5; c.strokeStyle = '#1d2026'; c.lineCap = 'round';
+    for (const sd of [-1, 1]) for (let i = 0; i < 4; i++) {
+      const x = 410 + i * 92, y = 250 + sd * 138;
+      c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x - 60, 250 + sd * 70, 300, 250 + sd * 18); c.stroke();
+    }
+    for (const sd of [-1, 1]) for (let i = 0; i < 4; i++) {
+      const x = 410 + i * 92, y = 250 + sd * 138, lit = s.on && (i * 2 + (sd > 0 ? 1 : 0)) === fire;
+      dot(c, x, y, 13, '#1d2026'); dot(c, x, y, 7, lit ? '#ffe14d' : '#4a5058');
+      if (lit) { c.globalAlpha = .5; dot(c, x, y, 20, '#ffd23f'); c.globalAlpha = 1; }
+    }
+    dot(c, 300, 250, 36, '#1d2026'); ring(c, 300, 250, 30, 5, '#ec6a2c');
+    c.save(); c.translate(300, 250); c.rotate(s.ang * .8); c.fillStyle = '#ec6a2c'; c.fillRect(-4, -22, 8, 22); c.restore();
+    // intake + air cleaner
+    box(c, 430, 185, 230, 130, 24, '#7c8692');
+    dot(c, 545, 250, 100, '#6d7781'); dot(c, 545, 250, 92, '#b8c1cb'); dot(c, 545, 250, 62, '#9aa4ae');
+    c.beginPath(); c.moveTo(545, 250); c.arc(545, 250, 92, -2.4, -0.6); c.closePath(); c.fillStyle = 'rgba(255,255,255,.18)'; c.fill();
+    dot(c, 545, 250, 30, '#d7dde2');
+    c.save(); c.translate(545, 250); c.rotate(.3 + s.shx * .03);
+    c.beginPath(); c.ellipse(0, 0, 26, 9, 0, 0, TAU); c.fillStyle = '#5a636d'; c.fill(); dot(c, 0, 0, 9, '#3a4048'); c.restore();
+    // belt + pulleys
+    c.save(); c.setLineDash([16, 10]); c.lineDashOffset = -s.ang * 60;
+    path(c, [[765, 148], [842, 250], [765, 352], [742, 250]]); c.closePath();
+    c.lineWidth = 11; c.lineJoin = 'round'; c.strokeStyle = '#15171b'; c.stroke(); c.restore();
+    for (const y of [175, 325]) {
+      dot(c, 765, y, 27, '#4a5058'); ring(c, 765, y, 27, 4, '#2a2e35');
+      c.save(); c.translate(765, y); c.rotate(s.ang * 2.4); c.fillStyle = '#9aa4ae'; c.fillRect(-3, -22, 6, 44); c.fillRect(-22, -3, 44, 6); c.restore();
+    }
+    c.restore();
+    // oil gauge
+    dot(c, 160, 250, 62, '#e9edf0'); ring(c, 160, 250, 62, 8, '#6d7781');
+    c.beginPath(); c.arc(160, 250, 44, Math.PI * .75 + Math.PI * 1.1, Math.PI * 2.25); c.lineWidth = 9; c.strokeStyle = '#ec6a2c'; c.stroke();
+    for (let k = 0; k <= 8; k++) { const a = Math.PI * .75 + k * Math.PI * 1.5 / 8;
+      c.beginPath(); c.moveTo(160 + Math.cos(a) * 50, 250 + Math.sin(a) * 50); c.lineTo(160 + Math.cos(a) * 40, 250 + Math.sin(a) * 40);
+      c.lineWidth = 3; c.strokeStyle = '#2b2f36'; c.stroke(); }
+    const na = Math.PI * .75 + Math.min(1, (s.on ? .12 : 0) + n * .9 + Math.sin(s.t * 30) * .01 * (s.on ? 1 : 0)) * Math.PI * 1.5;
+    c.beginPath(); c.moveTo(160, 250); c.lineTo(160 + Math.cos(na) * 46, 250 + Math.sin(na) * 46); c.lineWidth = 5; c.strokeStyle = '#2b2f36'; c.stroke();
+    dot(c, 160, 250, 8, '#2b2f36');
+    puffsDraw(c, s);
+  }
+
+  function drawEV(c, s) {
+    const n = s.n;
+    bay(c, '#b9c6d1', '#eef3f6');
+    // coolant reservoir + hose
+    pipe(c, [[650, 85], [720, 85], [760, 140]], 16, '#29c7b0', 'rgba(0,80,80,.35)');
+    dot(c, 640, 85, 40, '#c9eee8'); ring(c, 640, 85, 40, 6, '#7fb7b0');
+    c.save(); c.beginPath(); c.arc(640, 85, 37, 0, TAU); c.clip();
+    c.fillStyle = 'rgba(41,199,176,.75)'; c.beginPath(); c.moveTo(600, 95);
+    for (let x = 600; x <= 680; x += 8) c.lineTo(x, 92 + Math.sin(x * .12 + s.t * 4) * 3 * (s.on ? 1 : .2));
+    c.lineTo(680, 130); c.lineTo(600, 130); c.fill(); c.restore();
+    // battery pack
+    box(c, 70, 85, 450, 330, 32, '#2b3440');
+    box(c, 86, 101, 418, 298, 24, '#18202a');
+    const lit = s.on ? 18 : Math.floor(s.boot * 18);
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 6; k++) {
+      const idx = r * 6 + k, x = 102 + k * 67, y = 116 + r * 92;
+      let col = '#2a3b48';
+      if (idx < lit) {
+        const w = s.on ? .55 + .45 * Math.sin(s.t * (3 + n * 10) - k * .8 - r * .4) : 1;
+        col = mix('#1f6f68', '#3ff5d8', w * (.5 + n * .5));
+      }
+      box(c, x, y, 56, 78, 12, col);
+      box(c, x + 18, y + 6, 20, 8, 3, 'rgba(255,255,255,.35)');
+    }
+    // inverter box
+    box(c, 572, 155, 130, 190, 22, '#7d8a97');
+    c.fillStyle = '#66727e'; for (let y = 262; y < 335; y += 14) c.fillRect(588, y, 98, 6);
+    box(c, 588, 172, 98, 70, 10, '#0f1720');
+    if (s.on || s.boot > 0) {
+      const bars = s.on ? 1 + Math.round(n * 5) : Math.ceil(s.boot * 6);
+      for (let i = 0; i < 6; i++) box(c, 598 + i * 14, 225 - i * 7, 10, 8 + i * 7, 2, i < bars ? (i > 3 ? '#ffd23f' : '#3ff5d8') : '#233140');
+    }
+    // high-voltage cables with energy pulses
+    const cables = [
+      [[520, 210], [572, 210]], [[520, 290], [572, 290]],
+      [[702, 190], [735, 190], [760, 205]], [[702, 250], [712, 250]], [[702, 310], [735, 310], [760, 295]],
+    ];
+    for (const cb of cables) pipe(c, cb, 16, '#ff7a1a', 'rgba(120,40,0,.45)');
+    if (s.on) for (const cb of cables) {
+      const L = plen(cb);
+      for (let d = (s.flow % 26); d < L; d += 26) { const [x, y] = pointOn(cb, d); dot(c, x, y, 4, '#fff6b0'); }
+    }
+    // motor
+    if (s.on) {
+      const g = c.createRadialGradient(830, 250, 60, 830, 250, 175);
+      g.addColorStop(0, `rgba(63,245,216,${.15 + n * .45})`); g.addColorStop(1, 'rgba(63,245,216,0)');
+      c.fillStyle = g; c.fillRect(640, 60, 360, 380);
+    }
+    dot(c, 830, 250, 132, '#5d6976'); dot(c, 830, 250, 116, '#3a434d');
+    for (let i = 0; i < 12; i++) {
+      c.save(); c.translate(830, 250); c.rotate(i * TAU / 12);
+      box(c, -11, -108, 22, 32, 6, '#d98a3d'); c.fillStyle = 'rgba(0,0,0,.2)'; c.fillRect(-11, -96, 22, 3); c.fillRect(-11, -88, 22, 3);
+      c.restore();
+    }
+    c.save(); c.translate(830, 250); c.rotate(s.ang * 2.2);
+    dot(c, 0, 0, 68, '#c3ccd5');
+    for (let i = 0; i < 4; i++) {
+      c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, 62, i * TAU / 4 + .1, (i + 1) * TAU / 4 - .1); c.closePath();
+      c.fillStyle = i % 2 ? '#3d7bff' : '#ff4d5e'; c.fill();
+    }
+    dot(c, 0, 0, 24, '#e6ebf0'); c.fillStyle = '#8b96a2'; c.fillRect(-4, -24, 8, 48);
+    c.restore();
+    // lightning badge
+    c.save(); c.translate(295, 400);
+    box(c, -60, -16, 120, 32, 16, s.on ? '#3ff5d8' : '#2a3b48');
+    c.font = "800 22px 'Baloo 2', system-ui, sans-serif"; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = s.on ? '#0f1720' : '#7d8a97'; c.fillText(s.on ? '⚡ READY' : '⚡ EV', 0, 2); c.restore();
+  }
+
+  function drawDiesel(c, s) {
+    const n = s.n;
+    bay(c, '#f2b705', '#2a2724');
+    // hazard stripes on the frame
+    c.save(); c.beginPath(); c.rect(-400, -400, 1800, 1300); rr(c, 18, 18, 964, 464, 46, true); c.clip('evenodd');
+    c.fillStyle = '#1d1b19';
+    for (let x = -600; x < 1600; x += 56) { c.beginPath(); c.moveTo(x, -50); c.lineTo(x + 28, -50); c.lineTo(x + 628, 600); c.lineTo(x + 600, 600); c.fill(); }
+    c.restore();
+    // intercooler / radiator
+    box(c, 892, 50, 72, 400, 14, '#5d6670'); c.fillStyle = '#454d56'; for (let y = 68; y < 435; y += 15) c.fillRect(900, y, 56, 6);
+    // fan
+    dot(c, 800, 250, 120, '#171513');
+    fan(c, 800, 250, 108, 7, s.ang * 1.2, '#8a8f94', '#c9ced3');
+    c.save(); c.translate(s.shx, s.shy);
+    // turbo -> intercooler pipe along the top
+    pipe(c, [[215, 262], [215, 75], [860, 75], [892, 110]], 28, '#c9ced3');
+    // exhaust manifold -> turbo -> stacks
+    const heat = mix('#7d858c', '#ff6a2a', Math.min(1, n * n * .9));
+    pipe(c, [[690, 372], [270, 372], [230, 340]], 30, heat);
+    for (let i = 0; i < 6; i++) { const x = 315 + i * 72; pipe(c, [[x, 330], [x, 372]], 20, heat); }
+    pipe(c, [[150, 330], [88, 300]], 26, heat);
+    pipe(c, [[150, 300], [150, 150], [88, 112]], 26, heat);
+    // exhaust stacks (chrome)
+    for (const y of [112, 300]) {
+      const g = c.createRadialGradient(76, y - 12, 4, 88, y, 44);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(.5, '#b8c0c7'); g.addColorStop(1, '#5d6670');
+      dot(c, 88, y, 44, g); dot(c, 88, y, 26, '#0e0d0c'); ring(c, 88, y, 26, 3, '#3a3d40');
+    }
+    // block + valve cover
+    box(c, 255, 145, 470, 210, 28, '#3e4a52');
+    box(c, 275, 168, 430, 164, 42, '#f2b705');
+    c.fillStyle = 'rgba(0,0,0,.14)'; for (let x = 300; x < 690; x += 22) c.fillRect(x, 184, 8, 26);
+    for (let x = 300; x < 690; x += 22) c.fillRect(x, 290, 8, 26);
+    c.font = "800 26px 'Baloo 2', system-ui, sans-serif"; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = 'rgba(29,27,25,.75)'; c.fillText('TURBO DIESEL', 490, 323);
+    // fuel rail + injectors
+    pipe(c, [[300, 222], [690, 222]], 8, '#c9ced3');
+    const fire = Math.floor(s.ang * 1.6) % 6;
+    for (let i = 0; i < 6; i++) {
+      const x = 315 + i * 72;
+      pipe(c, [[x, 222], [x, 250]], 6, '#c9ced3');
+      dot(c, x, 255, 18, '#1d1b19'); ring(c, x, 255, 18, 4, '#c9ced3');
+      const on = s.on && i === fire;
+      dot(c, x, 255, 8, on ? '#ff8a2a' : '#4a4542');
+      if (on) { c.globalAlpha = .45; dot(c, x, 255, 24, '#ff8a2a'); c.globalAlpha = 1; }
+    }
+    // turbo snail
+    dot(c, 215, 315, 74, '#7d858c'); ring(c, 215, 315, 74, 6, '#4d545b');
+    c.beginPath(); for (let a = 0; a < TAU * 1.6; a += .1) { const r = 30 + a * 6.5; c.lineTo(215 + Math.cos(a) * r, 315 + Math.sin(a) * r); }
+    c.lineWidth = 4; c.strokeStyle = 'rgba(0,0,0,.25)'; c.stroke();
+    dot(c, 215, 315, 40, '#2a2724');
+    c.save(); c.translate(215, 315); c.rotate(s.ang * 4);
+    for (let i = 0; i < 9; i++) { c.save(); c.rotate(i * TAU / 9);
+      c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(14, -18, 8, -38); c.lineTo(2, -38); c.quadraticCurveTo(6, -18, -4, 0);
+      c.fillStyle = '#d9dee2'; c.fill(); c.restore(); }
+    dot(c, 0, 0, 9, '#8a8f94'); c.restore();
+    c.restore();
+    puffsDraw(c, s);
+  }
+
+  // ================= sound (all synthesized with Web Audio) =================
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ac = null, master = null, noiseBuf = null;
+  function audio() {
+    if (!AC) return null;
+    if (!ac) {
+      ac = new AC();
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6;
+      master = ac.createGain(); master.gain.value = .9; master.connect(comp); comp.connect(ac.destination);
+      const len = ac.sampleRate * 2; noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (ac.state === 'suspended') ac.resume();
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {} // play even with iPhone silent switch
+    return ac;
+  }
+  const G = v => { const g = ac.createGain(); g.gain.value = v; return g; };
+  const O = (type, f) => { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; return o; };
+  const F = (type, f, q = 1) => { const b = ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
+  function N() { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; return s; }
+  function curve(fn) { const a = new Float32Array(1024); for (let i = 0; i < 1024; i++) a[i] = fn(i / 511.5 - 1); return a; }
+  const ramp = (p, v, tc = .05) => p.setTargetAtTime(v, ac.currentTime, tc);
+  function killAll(nodes, out, fade = .15) {
+    ramp(out.gain, 0, fade);
+    setTimeout(() => nodes.forEach(nd => { try { nd.stop(); } catch (e) {} try { nd.disconnect(); } catch (e) {} }), fade * 6000);
+  }
+
+  // Combustion engine: buzz at the cylinder firing frequency, distorted and filtered, plus lope / clatter / turbo.
+  function combustionSound(cfg) {
+    const out = G(0); out.connect(master);
+    const lp = F('lowpass', 600, 1.4); lp.connect(out);
+    const shaper = ac.createWaveShaper(); shaper.curve = curve(x => Math.tanh(x * cfg.drive)); shaper.connect(lp);
+    const am = G(1); am.connect(shaper);
+    const o1 = O('sawtooth', 50), o2 = O('square', 25), o3 = O('triangle', 100);
+    o1.connect(G(.55)).connect(am); o2.connect(G(.3)).connect(am); o3.connect(G(.25)).connect(am);
+    const nz = N(), bp = F('bandpass', 300, .9); nz.connect(bp); bp.connect(G(cfg.rumble)).connect(am);
+    const lope = O('sine', 6); lope.connect(G(cfg.lope)).connect(am.gain);
+    const srcs = [o1, o2, o3, nz, lope];
+    let tick = null, tickOsc = null, turbo = null, turboG = null;
+    if (cfg.clatter) { // diesel knock: noise gated by sharp pulses at the firing rate
+      const n2 = N(), hp = F('highpass', 1800, .7); tick = G(0); n2.connect(hp); hp.connect(tick); tick.connect(out);
+      tickOsc = O('sawtooth', 30); const pulse = ac.createWaveShaper();
+      pulse.curve = curve(x => x > .55 ? Math.pow((x - .55) / .45, 2) * cfg.clatter : 0);
+      tickOsc.connect(pulse); pulse.connect(tick.gain); srcs.push(n2, tickOsc);
+    }
+    if (cfg.turbo) { turbo = O('sine', 1500); turboG = G(0); turbo.connect(turboG); turboG.connect(master); srcs.push(turbo); }
+    srcs.forEach(s => s.start());
+    return {
+      set(rpm, n, vol) {
+        const f = Math.max(4, rpm / 60 * cfg.cyl / 2);
+        ramp(o1.frequency, f); ramp(o2.frequency, f / 2); ramp(o3.frequency, f * 2);
+        ramp(bp.frequency, f * 5); ramp(lope.frequency, f / (cfg.cyl / 2) * cfg.lopeRate);
+        ramp(lp.frequency, cfg.lp + n * cfg.lpRange + f * 2);
+        ramp(out.gain, vol);
+        if (tickOsc) ramp(tickOsc.frequency, f);
+        if (turbo) { ramp(turbo.frequency, 1400 + n * 4200, .25); ramp(turboG.gain, n * n * cfg.turbo * (vol > 0 ? 1 : 0), .2); }
+      },
+      stop(fade = .4) { if (turboG) ramp(turboG.gain, 0, fade / 2); killAll(srcs, out, fade); },
+    };
+  }
+  function starterSound(cfg) {
+    const out = G(0); out.connect(master); ramp(out.gain, .55, .05);
+    const lp = F('lowpass', 900, 2); lp.connect(out);
+    const am = G(.5); am.connect(lp);
+    const o = O('sawtooth', cfg.crankHz), w = O('square', 150);
+    o.connect(G(.8)).connect(am); w.connect(G(.12)).connect(am);
+    const lfo = O('sine', cfg.crankLfo); lfo.connect(G(.5)).connect(am.gain);
+    [o, w, lfo].forEach(s => s.start());
+    return { stop(f = .08) { killAll([o, w, lfo], out, f); } };
+  }
+  function electricSound() {
+    const out = G(0); out.connect(master);
+    const o1 = O('sine', 120), o2 = O('sine', 241), o3 = O('triangle', 362), hum = O('sine', 60);
+    o1.connect(G(.6)).connect(out); o2.connect(G(.3)).connect(out); o3.connect(G(.08)).connect(out);
+    const hg = G(.0); hum.connect(hg); hg.connect(master);
+    const nz = N(), lp = F('bandpass', 900, .6), ng = G(0); nz.connect(lp); lp.connect(ng); ng.connect(master);
+    [o1, o2, o3, hum, nz].forEach(s => s.start());
+    return {
+      set(rpm, n, vol) {
+        const f = 90 + n * 1100; ramp(o1.frequency, f, .12); ramp(o2.frequency, f * 2.01, .12); ramp(o3.frequency, f * 3.02, .12);
+        ramp(out.gain, vol * (.12 + n * .55), .1); ramp(hg.gain, vol ? .06 : 0, .1); ramp(ng.gain, vol * n * .12, .2);
+      },
+      stop(fade = .4) { ramp(hg.gain, 0, fade / 2); ramp(ng.gain, 0, fade / 2); killAll([o1, o2, o3, hum, nz], out, fade); },
+    };
+  }
+  function note(f, t0, dur, type = 'sine', vol = .3, f2 = null) {
+    const o = O(type, f), g = G(0); o.connect(g); g.connect(master);
+    const t = ac.currentTime + t0;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .02);
+    g.gain.setValueAtTime(vol, t + dur * .7); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    o.start(t); o.stop(t + dur + .05);
+  }
+  function hornV8() { [0, .32].forEach(t => { note(392, t, .26, 'square', .18); note(494, t, .26, 'square', .14); }); }
+  function hornEV() { [0, .2].forEach(t => note(1046, t, .12, 'sine', .35)); }
+  function hornDiesel() { [233, 294, 349].forEach(f => note(f, 0, .95, 'sawtooth', .16, f * .94)); }
+  function chimeUp() { [523, 659, 784, 1046].forEach((f, i) => note(f, i * .12, .3, 'sine', .25)); }
+  function chimeDown() { [784, 523].forEach((f, i) => note(f, i * .12, .25, 'sine', .2)); }
+
+  // ================= engine catalog =================
+  const ENGINES = [
+    { id:'v8', name:'V8 Muscle', tag:'Big loud rumble!', draw:drawV8, kind:'gas',
+      idle:850, max:6200, crank:1.1, shake:[1.6, 3], horn:hornV8,
+      snd:{ cyl:8, drive:3.2, lope:.5, lopeRate:1, rumble:.35, lp:420, lpRange:2600, crankHz:28, crankLfo:4.6 },
+      tips:[[44, 58, -1, 0], [44, 442, -1, 0]], puff:{ col:'#c9ced3', r:13, alpha:.55, rate:[6, 30] } },
+    { id:'ev', name:'Electric', tag:'Quiet & zippy!', draw:drawEV, kind:'ev',
+      idle:500, max:12000, crank:.75, shake:[0, .4], horn:hornEV, tips:[] },
+    { id:'diesel', name:'Diesel Truck', tag:'Chug chug & smoke!', draw:drawDiesel, kind:'gas',
+      idle:620, max:2700, crank:1.7, shake:[2.4, 3.6], horn:hornDiesel,
+      snd:{ cyl:6, drive:2.2, lope:.18, lopeRate:.5, rumble:.5, lp:320, lpRange:1500, crankHz:22, crankLfo:3.2, clatter:.9, turbo:.07 },
+      tips:[[88, 112, 0, 0], [88, 300, 0, 0]], puff:{ col:'#1d1b19', r:22, alpha:.7, rate:[4, 26] } },
+  ];
+  let engineIdx = Math.max(0, ENGINES.findIndex(e => e.id === store.get('engine', 'v8')));
+
+  // ================= pick screen =================
+  const cardEls = ENGINES.map((e, i) => {
+    const b = document.createElement('button');
+    b.className = 'card';
+    b.innerHTML = `<canvas></canvas><b>${e.name}</b><span>${e.tag}</span>`;
+    b.onclick = () => { engineIdx = i; store.set('engine', e.id); audio(); keepAwake(); enterPlay(); };
+    $('#cards').appendChild(b);
+    return { cv: b.querySelector('canvas'), e };
+  });
+
+  // ================= engine state machine =================
+  const eng = { mode:'off', rpm:0, crankT:0, ang:0, flow:0, t:0, shx:0, shy:0, puffs:[], snd:null, starter:null,
+                pointers:new Set(), runSince:0, puffAcc:0, wasRev:false, buzzAt:0 };
+  const E = () => ENGINES[engineIdx];
+  const holding = () => eng.pointers.size > 0;
+
+  function enterPlay() {
+    stopEngine(true);
+    eng.puffs = []; eng.ang = 0;
+    setPower(); hint('Press & hold to start! 🔑', true);
+    show('play');
+  }
+  function beginCrank() {
+    if (eng.mode !== 'off') return;
+    audio(); eng.mode = 'crank'; eng.crankT = 0;
+    if (ac) { if (E().kind === 'ev') note(330, 0, .5, 'sine', .15, 660); else eng.starter = starterSound(E().snd); }
+    hint(E().kind === 'ev' ? 'Powering up… ⚡' : 'Starting… keep holding!', false);
+  }
+  function cancelCrank() {
+    if (eng.starter) { eng.starter.stop(); eng.starter = null; }
+    eng.mode = 'off'; eng.rpm = 0; hint('Hold longer to start! 🔑', true);
+  }
+  function fire() {
+    const e = E();
+    if (eng.starter) { eng.starter.stop(); eng.starter = null; }
+    eng.mode = 'run'; eng.runSince = performance.now();
+    eng.rpm = e.kind === 'ev' ? e.idle : e.idle * 2.6; // the "VROOM" on start
+    if (ac) {
+      eng.snd = e.kind === 'ev' ? electricSound() : combustionSound(e.snd);
+      if (e.kind === 'ev') chimeUp();
+    }
+    if (e.puff) for (let i = 0; i < 10; i++) spawnPuff(1.6);
+    buzz([120, 60, 220]);
+    hint('Hold to go VROOM! 🏁', false);
+    setTimeout(() => { if (eng.mode === 'run') hint('', false); }, 3500);
+  }
+  function stopEngine(silent) {
+    if (eng.starter) { eng.starter.stop(); eng.starter = null; }
+    if (eng.snd) { eng.snd.stop(silent ? .05 : .5); eng.snd = null; }
+    if (!silent && ac && E().kind === 'ev') chimeDown();
+    eng.mode = eng.mode === 'run' && !silent ? 'stopping' : 'off';
+    if (silent) eng.rpm = 0;
+    setPower(); hint(view === 'play' ? 'Press & hold to start! 🔑' : '', true);
+  }
+
+  function buzz(p) { if (navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} } }
+  function spawnPuff(boost = 1) {
+    const e = E(); if (!e.puff) return;
+    const [x, y, dx] = e.tips[Math.floor(Math.random() * e.tips.length)];
+    const a = Math.random() * TAU, sp = (20 + Math.random() * 40) * boost;
+    eng.puffs.push({ x, y, vx: dx ? dx * (80 + Math.random() * 80) * boost + Math.cos(a) * 15 : Math.cos(a) * sp,
+      vy: dx ? Math.sin(a) * 25 : Math.sin(a) * sp, r: e.puff.r * (.7 + Math.random() * .6) * (boost > 1 ? 1.3 : 1),
+      age: 0, life: .9 + Math.random() * .8, col: e.puff.col, alpha: e.puff.alpha });
+  }
+
+  function tick(dt, now) {
+    const e = E();
+    eng.t += dt;
+    if (eng.mode === 'crank') {
+      eng.crankT += dt;
+      eng.rpm = e.kind === 'ev' ? 0 : 160 + Math.sin(eng.crankT * e.snd.crankLfo * TAU) * 60;
+      if (!holding()) cancelCrank();
+      else if (eng.crankT >= e.crank) fire();
+    } else if (eng.mode === 'run') {
+      const rev = holding();
+      const target = rev ? e.max * .92 : e.idle;
+      const rate = target > eng.rpm ? (e.kind === 'ev' ? 1.4 : 2.6) : (e.kind === 'ev' ? 1.0 : 1.7);
+      eng.rpm += (target - eng.rpm) * (1 - Math.exp(-rate * dt));
+      if (rev && !eng.wasRev && e.id === 'diesel') for (let i = 0; i < 14; i++) spawnPuff(1.8); // roll some coal
+      if (rev && now > eng.buzzAt) { buzz(e.kind === 'ev' ? 8 : 35); eng.buzzAt = now + (e.kind === 'ev' ? 400 : 140); }
+      eng.wasRev = rev;
+    } else if (eng.mode === 'stopping') {
+      eng.rpm *= Math.exp(-3 * dt);
+      if (eng.rpm < 40) { eng.rpm = 0; eng.mode = 'off'; }
+    }
+    const n = Math.min(1, eng.rpm / e.max), on = eng.mode === 'run';
+    // spin + flow
+    const spin = eng.mode === 'crank' ? (e.kind === 'ev' ? 0 : 3 + Math.sin(eng.crankT * 20) * 2)
+               : (on || eng.mode === 'stopping') ? (on ? 2.5 : 0) + n * 30 + eng.rpm / e.idle * (on ? 0 : 1.5) : 0;
+    eng.ang += spin * dt;
+    eng.flow += (on ? 30 + n * 500 : 0) * dt;
+    // shake
+    const amp = eng.mode === 'crank' ? 1.5 : on ? e.shake[0] + n * e.shake[1] : 0;
+    eng.shx = amp ? (Math.sin(eng.t * 47) + (Math.random() - .5)) * amp : 0;
+    eng.shy = amp ? (Math.cos(eng.t * 39) + (Math.random() - .5)) * amp : 0;
+    // exhaust
+    if (on && e.puff) {
+      eng.puffAcc += (e.puff.rate[0] + n * e.puff.rate[1]) * dt;
+      while (eng.puffAcc > 1) { spawnPuff(1 + n); eng.puffAcc--; }
+    }
+    for (const p of eng.puffs) { p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .98; p.vy *= .98; }
+    eng.puffs = eng.puffs.filter(p => p.age < p.life);
+    // sound
+    if (eng.snd) eng.snd.set(eng.rpm, n, e.kind === 'ev' ? 1 : .32 + n * .3);
+    // crank progress ring
+    const prog = eng.mode === 'crank' ? Math.min(1, eng.crankT / e.crank) : 0;
+    ringEl.style.strokeDashoffset = 289 * (1 - prog);
+    if (on !== powerEl.classList.contains('run')) setPower();
+    return { n, on, boot: eng.mode === 'crank' && e.kind === 'ev' ? prog : 0 };
+  }
+
+  // ================= play controls =================
+  const playEl = $('#play'), powerEl = $('#power'), ringEl = $('#power svg.ring circle'), hintEl = $('#hint');
+  function setPower() {
+    const on = eng.mode === 'run';
+    powerEl.classList.toggle('run', on);
+    powerEl.querySelector('.lbl').textContent = on ? 'STOP' : 'START';
+  }
+  function hint(text, pulse) {
+    if (!text) { hintEl.classList.add('hide'); return; }
+    hintEl.textContent = text; hintEl.classList.remove('hide'); hintEl.classList.toggle('pulse', !!pulse);
+  }
+  let powerTap = null;
+  // Press-and-hold anywhere (or on the power button): starts the engine, then revs it.
+  playEl.addEventListener('pointerdown', ev => {
+    if (ev.target.closest('#gear, #horn')) return;
+    ev.preventDefault();
+    try { playEl.setPointerCapture(ev.pointerId); } catch (e) {}
+    eng.pointers.add(ev.pointerId);
+    if (eng.mode === 'off' || eng.mode === 'stopping') { eng.mode = 'off'; beginCrank(); }
+    if (ev.target.closest('#power') && eng.mode === 'run') powerTap = { id: ev.pointerId, at: performance.now() };
+  });
+  const up = ev => {
+    if (!eng.pointers.has(ev.pointerId)) return;
+    eng.pointers.delete(ev.pointerId);
+    // a quick tap on the power button while running turns the engine off
+    if (powerTap && powerTap.id === ev.pointerId && performance.now() - powerTap.at < 300 && eng.mode === 'run') stopEngine(false);
+    if (powerTap && powerTap.id === ev.pointerId) powerTap = null;
+  };
+  playEl.addEventListener('pointerup', up);
+  playEl.addEventListener('pointercancel', up);
+  playEl.addEventListener('contextmenu', e => e.preventDefault());
+  $('#horn').addEventListener('pointerdown', ev => { ev.stopPropagation(); if (audio()) E().horn(); buzz(60); });
+  window.addEventListener('keydown', ev => { if (ev.code === 'Space' && view === 'play' && !ev.repeat) { eng.pointers.add('key'); if (eng.mode === 'off') beginCrank(); } });
+  window.addEventListener('keyup', ev => { if (ev.code === 'Space') eng.pointers.delete('key'); });
+
+  // hold the gear to go back
+  const gear = $('#gear');
+  let holdTimer = null;
+  gear.addEventListener('pointerdown', ev => {
+    ev.stopPropagation(); gear.classList.add('holding');
+    holdTimer = setTimeout(() => {
+      gear.classList.remove('holding'); stopEngine(true); eng.pointers.clear();
+      if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+      show('pick');
+    }, 700);
+  });
+  gear.addEventListener('pointerup', () => { if (holdTimer) { clearTimeout(holdTimer); gear.classList.remove('holding'); hint('Hold the ⚙ to change engine', false); setTimeout(() => hint(eng.mode === 'run' ? '' : 'Press & hold to start! 🔑', eng.mode !== 'run'), 1600); } holdTimer = null; });
+  gear.addEventListener('pointerleave', () => { clearTimeout(holdTimer); holdTimer = null; gear.classList.remove('holding'); });
+
+  $('#start').onclick = () => { goFullscreen(); audio(); show('pick'); };
+  $('#flip').onclick = () => setSide(-side);
+
+  // ================= render loop =================
+  function fit(cv) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.round(cv.clientWidth * dpr)), h = Math.max(1, Math.round(cv.clientHeight * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    return { w, h };
+  }
+  function render(cv, e, s) {
+    const { w, h } = fit(cv), c = cv.getContext('2d');
+    const k = Math.min(w / 1000, h / 500);
+    c.setTransform(k, 0, 0, k, (w - 1000 * k) / 2, (h - 500 * k) / 2);
+    e.draw(c, s);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    if (view === 'pick') {
+      const t = now / 1000;
+      cardEls.forEach(({ cv, e }, i) => render(cv, e, { n: .04 + .03 * Math.sin(t + i), ang: t * 3, on: true, boot: 0,
+        shx: e.kind === 'ev' ? 0 : Math.sin(t * 40 + i) * .8, shy: Math.cos(t * 33) * .8, t, flow: t * 40, puffs: [] }));
+    } else if (view === 'play') {
+      const r = tick(dt, now);
+      render($('#stage'), E(), { n: r.n, on: r.on, boot: r.boot, ang: eng.ang, shx: eng.shx, shy: eng.shy, t: eng.t, flow: eng.flow, puffs: eng.puffs });
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
