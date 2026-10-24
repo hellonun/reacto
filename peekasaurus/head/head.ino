@@ -30,6 +30,13 @@
      3V3 -> leave unconnected. It is an OUTPUT, do not feed 5V into it.
      INT -> leave unconnected.
 
+  BREAK BEAM (optional but recommended - set PIN_BEAM = -1 if not fitted)
+     Receiver OUT -> D4
+     VCC          -> 5V       (emitter too)
+     GND          -> GND
+     Mount the beam so it crosses the ball's path AT or JUST ABOVE the
+     sensor window. Send 'b' to check wiring and polarity.
+
   NEOPIXEL STRIP
      DIN -> D2      through a 300-500 ohm resistor
      5V  -> 5V      a 1000uF cap across 5V/GND at the strip is advised
@@ -73,6 +80,33 @@
 /* ========================= PIN MAP ========================= */
 const int8_t  PIN_LED   = 3;     // -1 if you hard-wire the module LEDs on
 const uint8_t PIN_STRIP = 2;
+const int8_t  PIN_BEAM  = 4;     // break-beam receiver. -1 = no beam fitted
+
+/* ========================= BREAK BEAM ========================= */
+// With a beam fitted, the head stops guessing from colour alone: the break
+// says exactly when a ball is in front of the sensor, so one trustworthy
+// reading replaces the CONFIRM debounce. Set PIN_BEAM to -1 to go back to
+// free-running detection.
+const bool     BEAM_AUTO_POLARITY = true;  // learn "clear" from the resting
+                                        // state when live mode starts. Keep
+                                        // the chamber EMPTY at that moment.
+const bool     BEAM_ACTIVE_LOW = true;  // only used if AUTO_POLARITY is false
+// Break -> read delay. The beam catches the ball's LEADING EDGE; its body
+// needs a few more ms to swing into the sensor's view. Measured with 'f' on
+// this rig: chamber still dark at t=23, ball peaks at t=34, gone by t=64.
+// 22 puts the 24ms read window over [22,46] - squarely on the pass.
+// Re-run 'f' if the drop height or the beam position changes.
+const uint16_t BEAM_SETTLE_MS  = 22;
+const uint8_t  BEAM_FLUSH      = 1;     // stale integrations to discard (below)
+// Ignore re-triggers. The 'f' trace shows this ball bouncing back through
+// the sensor at t=120-196 and again at t=202-278, so a 250ms lockout would
+// let the third pass count as a second ball. 400 covers the whole sequence.
+const uint16_t BEAM_LOCKOUT_MS = 400;
+// An unwired or dead beam looks exactly like a beam that never sees a ball:
+// nothing triggers and the head goes quiet. If no edge at all arrives within
+// this long, say so and fall back to free-running detection for the rest of
+// the session, so the head keeps working. 0 disables the fallback.
+const uint16_t BEAM_FALLBACK_MS = 8000;
 
 /* ========================= STRIP ========================= */
 const uint16_t NUM_PIXELS = 64;
@@ -100,14 +134,36 @@ const uint16_t HOLD_MS          = 2000;
 // But see WIRING.md - after that, a byte of serial noise leaves it parked at
 // the prompt with the strip dark until it is power-cycled.
 // ===========================================================================
-const bool     AUTO_LIVE        = false;
+const bool     AUTO_LIVE        = true;
 
 /* ========================= DETECTION ========================= */
-// Readings that must agree before a ball is reported. Each reading costs
-// one integration (~24ms) plus I2C overhead, so this is the detection
-// latency: 2 is about 60ms, 3 about 90ms. A ball falling past is only in
-// view for roughly 60-100ms, so 3 often misses it entirely.
-const uint8_t CONFIRM = 2;
+// ONLY used when no beam is fitted (PIN_BEAM = -1, or the beam fallback
+// fired). A beam makes this irrelevant: the break already proves a ball is
+// there, so no agreement is needed.
+//
+// Readings that must agree before a ball is reported. Each costs one
+// integration (~24ms) plus I2C overhead, so this IS the detection latency:
+// 1 is ~30ms, 2 is ~60ms, 3 is ~90ms. A ball falling past is in view for
+// only 60-100ms, so anything above 1 misses balls on this rig - measured,
+// not guessed. The cost of 1 is that a half-in-frame reading can be
+// reported, which the beam exists to eliminate.
+const uint8_t CONFIRM = 1;
+
+// How much BRIGHTNESS counts against hue when matching. Brightness varies a
+// lot on a falling ball - the 'f' trace had the same ball at C=65, C=40 and
+// C=165 on three passes - while its chromaticity barely moved. Lower this
+// toward 0 if balls read correct-but-dim and still miss; the cost is that
+// white, grey and black become indistinguishable, since they differ only in
+// brightness. 0 is right if every ball is a saturated colour.
+// 0 = match on hue alone. Set from measured data: in-flight readings of the
+// SAME ball ranged C=65 to C=165 on three passes while its chromaticity
+// moved less than 0.04, so brightness here is noise, not signal. At 0.15 a
+// hue-perfect read whose brightness differed by 0.3 from training already
+// scored 0.116 - more than the whole threshold - which is why correct
+// colours kept coming back UNKNOWN.
+// Raise it above 0 only if you add white, grey or black balls, which differ
+// from each other ONLY in brightness.
+const float LUM_WEIGHT = 0.0;
 
 /* ========================= TUNING ========================= */
 // ONE integration time for everything. The sensor's maximum count scales
@@ -188,6 +244,10 @@ const uint8_t GAIN_VALUES[4] = { 1, 4, 16, 60 };
 Adafruit_TCS34725 tcs(INTEG, TCS34725_GAIN_4X);
 
 uint8_t gSamples = SAMPLES_SLOW;
+// Stream a reading now and then for the page's Training readout. Each one
+// blocks beam polling for a whole integration, so it is OFF for live
+// detection and ON only while the page is actually showing that readout.
+bool    gIdleReads = true;
 bool    ledHold  = false;
 
 const int EE_CAL = 0;
@@ -362,7 +422,7 @@ int freeSlot() {
 
 float distanceTo(const ColorClass &c, const Reading &m) {
   float dr = c.r - m.r, dg = c.g - m.g, db = c.b - m.b, dl = c.lum - m.lum;
-  return sqrt(dr*dr + dg*dg + db*db + 0.15f * dl * dl);
+  return sqrt(dr*dr + dg*dg + db*db + LUM_WEIGHT * dl * dl);
 }
 
 void teach(const char *name, const Reading &m) {
@@ -423,6 +483,40 @@ int bestMatch(const Reading &m, float &bd, int &second, float &sd) {
 
 bool isEmptyClass(int idx) {
   return idx >= 0 && strcasecmp(classes[idx].name, "empty") == 0;
+}
+
+/* ========================= BEAM ========================= */
+
+// Whichever level the pin sits at with the chamber empty IS "clear", so the
+// polarity of the receiver stops mattering. Learned when live mode starts
+// and when 'b' runs. Set BEAM_AUTO_POLARITY false to force it by hand.
+uint8_t beamClearLevel = HIGH;
+
+void beamLearn() {
+  if (PIN_BEAM < 0) return;
+  if (BEAM_AUTO_POLARITY) beamClearLevel = digitalRead(PIN_BEAM);
+  else                    beamClearLevel = BEAM_ACTIVE_LOW ? HIGH : LOW;
+}
+
+bool beamBroken() {
+  if (PIN_BEAM < 0) return false;
+  return digitalRead(PIN_BEAM) != beamClearLevel;
+}
+
+// getRawData hands back the integration that ALREADY finished, so the first
+// read after a ball arrives still describes the empty chamber. Throwing that
+// one away is what makes a beam-triggered reading trustworthy rather than
+// merely fast.
+void flushIntegrations(uint8_t n) {
+  uint16_t r, g, b, c;
+  for (uint8_t i = 0; i < n; i++) tcs.getRawData(&r, &g, &b, &c);
+}
+
+// The board's decision, for the web page to display.
+void sendVerdict(int idx, float d) {
+  Serial.print(F("@@ "));
+  if (idx >= 0) { Serial.print(classes[idx].name); Serial.print(' '); Serial.println(d, 4); }
+  else          { Serial.println('-'); }
 }
 
 void printMatch(int best, float bd, int second, float sd) {
@@ -487,7 +581,7 @@ void listAll() {
       float dg = classes[i].g - classes[j].g;
       float db = classes[i].b - classes[j].b;
       float dl = classes[i].lum - classes[j].lum;
-      float d = sqrt(dr*dr + dg*dg + db*db + 0.15f*dl*dl);
+      float d = sqrt(dr*dr + dg*dg + db*db + LUM_WEIGHT*dl*dl);
       Serial.print(' '); Serial.print(classes[i].name);
       Serial.print(F(" <-> "));  Serial.print(classes[j].name);
       Serial.print(F("  "));     Serial.print(d, 4);
@@ -501,6 +595,8 @@ void help() {
   Serial.println(F("w=white bal  k=black bal  t <name>=teach  c=classify  m=live"));
   Serial.println(F("s=stream  l=list  d <name>=delete  x=erase all  h <v>=threshold"));
   Serial.println(F("g <1|4|16|60>=gain (redo w+k after)  p <name> <rrggbb|auto>=strip colour"));
+  Serial.println(F("v=verdicts only (precise beam timing)  b=beam monitor"));
+  Serial.println(F("n=strip test  f=fall profile (sets BEAM_SETTLE_MS)"));
 }
 
 /* ========================= COMMANDS ========================= */
@@ -521,18 +617,99 @@ bool serialLine(char *buf, uint8_t len) {
   return false;
 }
 
-void liveMode(bool doClassify) {
-  setSpeed(true);
-  ledHold = true;
-  ledOn(true);
-  delay(LED_WARMUP_MS);
+// Beam-triggered detection. The break says a ball is there, so there is
+// nothing to debounce and nothing to infer from the colour: one reading per
+// ball, taken at the right moment. Latency is the beam edge (microseconds)
+// plus the flush and the read, instead of CONFIRM whole readings.
+uint16_t liveModeBeam(bool doClassify, bool &fellBack) {
+  uint16_t count = 0;
+  bool     lit    = false;
+  bool     armed  = !beamBroken();
+  uint32_t lockoutUntil = 0;
+  uint32_t nextIdleRead = 0;
 
+  bool     lastBeam  = beamBroken();
+  bool     edgeSeen  = false;
+  uint32_t startedAt = millis();
+
+  while (true) {
+    char dummy[40];
+    if (serialLine(dummy, sizeof(dummy))) break;
+    stripTick();
+
+    bool broken = beamBroken();
+
+    if (broken != lastBeam) { lastBeam = broken; edgeSeen = true; }
+
+    // Nothing from the beam at all: treat it as not fitted rather than
+    // leaving the head mute.
+    if (!edgeSeen && BEAM_FALLBACK_MS &&
+        (int32_t)(millis() - startedAt) > (int32_t)BEAM_FALLBACK_MS) {
+      Serial.println(F("! no beam activity - check D4 and the emitter ('b' to test)."));
+      Serial.println(F("! falling back to free-running detection for this session."));
+      fellBack = true;
+      return count;
+    }
+
+    // --- ball arriving -----------------------------------------------
+    if (broken && armed && (int32_t)(millis() - lockoutUntil) >= 0) {
+      armed = false;
+      lockoutUntil = millis() + BEAM_LOCKOUT_MS;
+
+      if (BEAM_SETTLE_MS) delay(BEAM_SETTLE_MS);
+      flushIntegrations(BEAM_FLUSH);
+
+      Reading m; measure(m);
+      float bd, sd; int second;
+      int best = bestMatch(m, bd, second, sd);
+      if (best < 0) {
+        if (doClassify) { Serial.println(F("? nothing taught yet")); break; }
+        continue;
+      }
+
+      if (bd <= cal.threshold && !isEmptyClass(best)) {
+        count++;
+        lit = true;
+        stripLight(best);
+        if (doClassify) {
+          Serial.print(F("#")); Serial.print(count); Serial.print(F("  "));
+          printMatch(best, bd, second, sd);
+        } else {
+          sendVerdict(best, bd);
+        }
+      } else if (doClassify) {
+        Serial.print(F("   ")); printMatch(best, bd, second, sd);
+      }
+      continue;
+    }
+
+    // --- chamber clear -------------------------------------------------
+    if (!broken) {
+      if (lit) {
+        lit = false;
+        stripRelease();
+        if (!doClassify) sendVerdict(-1, 0);
+      }
+      armed = true;
+
+      // Keep the page's Training readout alive while nothing is dropping.
+      // Skipped while a ball is in the beam so the trigger stays responsive.
+      if (!doClassify && gIdleReads && (int32_t)(millis() - nextIdleRead) >= 0) {
+        Reading m; measure(m);
+        printReading(m);
+        nextIdleRead = millis() + 120;
+      }
+    }
+  }
+  return count;
+}
+
+// Free-running detection, used when no beam is fitted: read continuously and
+// debounce on CONFIRM agreeing readings.
+uint16_t liveModeFree(bool doClassify) {
   int     stable = -2, cand = -2;
   uint8_t agree = 0;
   uint16_t count = 0;
-
-  if (doClassify) Serial.println(F("live classify - drop balls, send any line to stop"));
-  else            Serial.println(F("live stream (fast) - send any line to stop"));
 
   while (true) {
     char dummy[40];
@@ -573,15 +750,37 @@ void liveMode(bool doClassify) {
         stripRelease();
       }
 
-      // Verdict line for the web page. The board is the single source of
-      // truth: the page displays this rather than classifying again, so the
-      // screen and the strip can never disagree on a marginal call.
-      if (!doClassify) {
-        Serial.print(F("@@ "));
-        if (stable >= 0) { Serial.print(classes[stable].name); Serial.print(' '); Serial.println(bd, 4); }
-        else             { Serial.println('-'); }
-      }
+      // The board is the single source of truth: the page displays this
+      // rather than classifying again, so the screen and the strip can never
+      // disagree on a marginal call.
+      if (!doClassify) sendVerdict(stable, bd);
     }
+  }
+  return count;
+}
+
+void liveMode(bool doClassify) {
+  setSpeed(true);
+  ledHold = true;
+  ledOn(true);
+  delay(LED_WARMUP_MS);
+
+  if (doClassify) Serial.print(F("live classify"));
+  else            Serial.print(F("live stream (fast)"));
+  if (PIN_BEAM >= 0) {
+    Serial.print(F(" [beam on D")); Serial.print(PIN_BEAM);
+    Serial.print(F(", clear=")); Serial.print(beamClearLevel == HIGH ? F("HIGH") : F("LOW"));
+    Serial.print(F("]"));
+  }
+  Serial.println(F(" - drop balls, send any line to stop"));
+
+  uint16_t count = 0;
+  if (PIN_BEAM >= 0) {
+    bool fellBack = false;
+    count = liveModeBeam(doClassify, fellBack);
+    if (fellBack) count += liveModeFree(doClassify);
+  } else {
+    count = liveModeFree(doClassify);
   }
 
   stripRelease();
@@ -645,9 +844,94 @@ void handle(char *line) {
       break;
     }
 
+    case 'f': {
+      // Measures how long after the beam breaks the ball actually reaches
+      // the sensor window - the number BEAM_SETTLE_MS needs to be when the
+      // beam sits above the window.
+      if (PIN_BEAM < 0) { Serial.println(F("needs a beam (PIN_BEAM = -1)")); break; }
+      Serial.println(F("fall profile - drop ONE ball, or send a line to cancel"));
+
+      ledHold = true; ledOn(true); delay(LED_WARMUP_MS);
+      beamLearn();
+
+      // 2.4ms integration: the counts land on a different scale and are
+      // noisy, but we only care WHEN the colour changes, not what it is.
+      tcs.setIntegrationTime(TCS34725_INTEGRATIONTIME_2_4MS);
+      { uint16_t a, b2, c2, d2; tcs.getRawData(&a, &b2, &c2, &d2); }
+
+      bool cancelled = false;
+      while (!beamBroken()) {
+        char dummy[40];
+        if (serialLine(dummy, sizeof(dummy))) { cancelled = true; break; }
+      }
+
+      if (!cancelled) {
+        uint32_t t0 = millis();
+        Serial.println(F("t(ms)\tR\tG\tB\tC"));
+        for (uint8_t i = 0; i < 48; i++) {
+          uint16_t r, g, b2, c2;
+          tcs.getRawData(&r, &g, &b2, &c2);
+          Serial.print(millis() - t0); Serial.print('\t');
+          Serial.print(r);  Serial.print('\t');
+          Serial.print(g);  Serial.print('\t');
+          Serial.print(b2); Serial.print('\t');
+          Serial.println(c2);
+        }
+        Serial.println(F("Find the row where C jumps and R/G/B separate."));
+        Serial.println(F("That t is your BEAM_SETTLE_MS. Run it a few times."));
+      }
+
+      tcs.setIntegrationTime(INTEG);
+      { uint16_t a, b2, c2, d2; tcs.getRawData(&a, &b2, &c2, &d2); }
+      ledHold = false; ledOn(false);
+      break;
+    }
+
+    case 'n': {
+      Serial.print(F("strip test on D")); Serial.print(PIN_STRIP);
+      Serial.print(F(", ")); Serial.print(NUM_PIXELS);
+      Serial.println(F(" pixels: red, green, blue, white, off"));
+      const uint32_t test[4] = { 0xFF0000UL, 0x00FF00UL, 0x0000FFUL, 0xFFFFFFUL };
+      for (uint8_t i = 0; i < 4; i++) {
+        strip.fill(strip.gamma32(test[i]));
+        strip.show();
+        delay(600);
+      }
+      strip.clear(); strip.show();
+      Serial.println(F("done. Nothing lit? check NUM_PIXELS, DIN on D2, the strip's"));
+      Serial.println(F("own 5V supply, and that its GND is tied to the Arduino's."));
+      break;
+    }
+
+    case 'b': {
+      if (PIN_BEAM < 0) { Serial.println(F("no beam fitted (PIN_BEAM = -1)")); break; }
+      Serial.println(F("beam monitor - keep the chamber EMPTY, then block it by hand"));
+      beamLearn();
+      Serial.print(F("resting level taken as clear: "));
+      Serial.println(beamClearLevel == HIGH ? F("HIGH") : F("LOW"));
+      Serial.println(F("send any line to stop"));
+      bool last = beamBroken();
+      uint16_t edges = 0;
+      while (true) {
+        char dummy[40];
+        if (serialLine(dummy, sizeof(dummy))) break;
+        bool now = beamBroken();
+        if (now != last) {
+          last = now;
+          edges++;
+          Serial.print(millis()); Serial.print(F("ms  "));
+          Serial.println(now ? F("BROKEN") : F("clear"));
+        }
+      }
+      Serial.print(F("stopped - ")); Serial.print(edges); Serial.println(F(" edges"));
+      if (!edges) Serial.println(F("No edges at all: check the receiver OUT is on D4 and the emitter is powered."));
+      break;
+    }
+
     case 'c': { setSpeed(false); Reading m; measure(m); classify(m, true); break; }
-    case 'm': liveMode(true);  break;
-    case 's': liveMode(false); break;
+    case 'm': gIdleReads = false; liveMode(true);  break;
+    case 's': gIdleReads = true;  liveMode(false); break;  // + Training readout
+    case 'v': gIdleReads = false; liveMode(false); break;  // verdicts only
     case 'l': listAll(); break;
 
     case 'd': {
@@ -736,6 +1020,9 @@ void handle(char *line) {
 
 void setup() {
   if (PIN_LED >= 0) { pinMode(PIN_LED, OUTPUT); digitalWrite(PIN_LED, LOW); }
+  // Pull-up suits an open-collector receiver and is harmless on a push-pull
+  // one; without it a disconnected input floats and triggers on noise.
+  if (PIN_BEAM >= 0) { pinMode(PIN_BEAM, INPUT_PULLUP); delay(5); beamLearn(); }
 
   Serial.begin(115200);
   while (!Serial) { ; }

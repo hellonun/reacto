@@ -311,7 +311,8 @@
 <script>
 "use strict";
 
-const LUM_WEIGHT = 0.15;   // must match the sketch
+const LUM_WEIGHT = 0;      // must match the sketch (hue only - brightness
+                           // varies too much on a falling ball to trust)
 // NOTE: detection timing now lives on the board only. Change CONFIRM in the
 // sketch; there is deliberately no copy here, so the two cannot drift apart.
 const HOLD_MS    = 2000;   // how long a result stays up after the ball leaves
@@ -739,7 +740,13 @@ document.addEventListener("click", e => {
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePicker(); });
 
 /* ------------------------------------------------------------- commands */
-async function startStream() { await send("s\n"); streaming = true; }
+// Training needs the live readout, so the board streams readings ('s').
+// Live does not, and those readings cost ~25ms of beam-polling blindness
+// each, which throws off the drop timing - so ask for verdicts only ('v').
+async function startStream() {
+  await send(mode === "live" ? "v\n" : "s\n");
+  streaming = true;
+}
 
 // Stopping the stream has to happen before any blocking dialog, otherwise the
 // board keeps talking into a buffer the page is not draining.
@@ -885,12 +892,18 @@ function renderClasses(tightest) {
 
 /* ----------------------------------------------------------------- modes */
 function setMode(next) {
+  const changed = mode !== next;
   mode = next;
   document.body.dataset.mode = next;
   $("mTrain").setAttribute("aria-pressed", String(next === "train"));
   $("mLive").setAttribute("aria-pressed", String(next === "live"));
   closePicker();
   render();
+
+  // Switch the board between readout and precise-timing modes.
+  if (changed && port && streaming) {
+    queue(async () => { await pauseStream(); await startStream(); });
+  }
 }
 $("mTrain").onclick = () => setMode("train");
 $("mLive").onclick  = () => setMode("live");

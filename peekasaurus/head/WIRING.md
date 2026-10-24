@@ -15,6 +15,7 @@ Drop a ball into the head, the sensor reads its colour, and the strip lights up 
 | 1 | Arduino Uno or Nano |
 | 1 | TCS34725 colour sensor breakout (the plain one — see note below) |
 | 1 | NeoPixel strip, 64 pixels (WS2812B) |
+| 1 | Break-beam sensor pair (IR emitter + receiver) — optional but recommended |
 | 1 | Strip power supply: 5 V, **at least 2 A** |
 | 1 | 300–500 Ω resistor (strip data line) |
 | 1 | 1000 µF capacitor, 6.3 V or higher (across the strip's power) |
@@ -43,6 +44,43 @@ Both from the Arduino IDE's Library Manager:
 | INT | *leave unconnected* | |
 
 A4 and A5 aren't configurable — they're the only pins wired to the ATmega328P's I²C peripheral.
+
+## Break beam
+
+Optional, but it makes the head markedly more reliable. Set `PIN_BEAM = -1` in the sketch if you aren't fitting one.
+
+| Beam wire | Arduino |
+|---|---|
+| Receiver OUT | **D4** |
+| Receiver VCC | 5V |
+| Receiver GND | GND |
+| Emitter VCC / GND | 5V / GND |
+
+### Why it helps
+
+Without a beam, the head has no idea when a ball is present. It reads colour continuously and infers "a ball arrived" from the colour changing — then waits for `CONFIRM` readings in a row to agree, so a half-in-frame blur doesn't get reported as a real ball. That costs latency, and a ball falling past is only in view for 60–100 ms.
+
+The beam removes the guesswork. The break *is* the signal that a ball is there, so:
+
+- **No debounce needed.** One reading per ball instead of `CONFIRM` agreeing ones.
+- **Nothing gets missed.** A ball that physically blocks the beam cannot go unnoticed, however fast it falls.
+- **No false positives.** An empty chamber never triggers, so the `empty` class and the threshold stop being load-bearing for "is there a ball?".
+- **The reading is taken at the right moment**, rather than whenever the loop happened to come round.
+
+There's a subtlety the beam also fixes. The sensor integrates continuously and `getRawData` returns the integration that *already finished* — so a read taken the instant the beam breaks describes the chamber **before** the ball arrived. `BEAM_FLUSH` discards that stale one and takes the next. That's why a beam-triggered reading is trustworthy and not just fast.
+
+### Where to mount it
+
+Across the ball's path, **at or just above** the sensor window.
+
+- **At the window** — the break coincides with the ball being in front of the sensor. Leave `BEAM_SETTLE_MS = 0`.
+- **Above the window** — the break comes slightly early, which is useful on a fast drop. Raise `BEAM_SETTLE_MS` until the reading lands while the ball is in view. Start at 10–20 ms and tune.
+
+### Checking it
+
+Send `b` in the Serial Monitor and block the beam with your hand. It prints an edge each time the state changes.
+
+If it reads `BROKEN` when nothing is in the way, flip `BEAM_ACTIVE_LOW` in the sketch.
 
 ## NeoPixel strip
 
@@ -76,9 +114,10 @@ Arduino pin   Goes to
 -----------   -------------------------------
 D2            NeoPixel DIN (via resistor)
 D3            TCS34725 LED
+D4            Break-beam receiver OUT
 A4 (SDA)      TCS34725 SDA
 A5 (SCL)      TCS34725 SCL
-5V / GND      TCS34725; GND also to strip supply (-)
+5V / GND      TCS34725, break beam; GND also to strip supply (-)
 ```
 
 ## The chamber
@@ -176,7 +215,7 @@ Watch `dist from centroid` in the log. The first sample always reads 0. After th
 
 **Use plain colour names.** A class named `orange`, `yellow`, `green`, `blue` (or white, red, cyan, purple, violet, pink, brown, black) automatically lights the strip in a proper version of that colour. Anything else — `orange_ball`, `org` — falls back to the muddy value the sensor actually measured. You can always override a colour by clicking the ball or the swatch in the list.
 
-**Also teach the empty chamber**, as `empty`. It costs one of the eight class slots and makes "no ball present" far more reliable than leaning on the threshold.
+**If you have no break beam, also teach the empty chamber** as `empty`. It costs one of the eight class slots and makes "no ball present" far more reliable than leaning on the threshold. With a beam fitted this is optional — the beam already knows when the chamber is empty — but it does no harm.
 
 ### 6. Check the separation
 
@@ -221,8 +260,18 @@ All near the top of `head.ino`.
 
 | Constant | Default | What it does |
 |---|---|---|
-| `CONFIRM` | `2` | Readings that must agree before a ball counts. Each is ~30 ms, so this is the detection latency. **Missing balls → lower it. One ball reported twice → raise it** |
+| `CONFIRM` | `2` | **Only used when no beam is fitted.** Readings that must agree before a ball counts. Each is ~30 ms, so this is the detection latency. Missing balls → lower it; one ball reported twice → raise it |
 | `MAX_CLASSES` | `8` | Maximum taught colours. EEPROM-backed, so changing it needs the `MAGIC` bump too |
+
+### Break beam
+
+| Constant | Default | What it does |
+|---|---|---|
+| `PIN_BEAM` | `4` | Receiver output pin. **`-1` disables the beam** and falls back to `CONFIRM` debouncing |
+| `BEAM_ACTIVE_LOW` | `true` | `true` = receiver pulls LOW when broken. Flip it if `b` reads BROKEN with nothing in the way |
+| `BEAM_SETTLE_MS` | `0` | Delay from break to read. Raise it if the beam sits **above** the sensor window |
+| `BEAM_FLUSH` | `1` | Stale integrations discarded before reading. 1 is correct for a 24 ms integration; raise only if readings look like the previous ball |
+| `BEAM_LOCKOUT_MS` | `250` | Ignores re-triggers after a read, so a bouncing ball isn't counted twice. **Lower it if you need to drop balls faster than ~4/second** |
 
 ### Sensor
 
@@ -260,6 +309,7 @@ Set at runtime, survive re-uploads:
 | `w` | White balance |
 | `k` | Black balance |
 | `t <name>` | Teach: add a reading to class `<name>` |
+| `b` | Beam monitor — check break-beam wiring and polarity |
 | `c` | Classify once |
 | `m` | Live classify — prints one line per ball |
 | `s` | Live raw stream (this is what the page uses) |
@@ -291,9 +341,14 @@ Any line sent while `m` or `s` is running stops it.
 | Colours confused with each other | Check the separation table (`l`). Under ~0.15 for a pair is an optical problem: matte-black the chamber, fix the distance |
 | Readings drift as the ball rotates | Glare or inconsistent distance. Shim the ball further out, or diffuse the LEDs with paper |
 | Strip shows muddy colours | Class isn't named a plain colour word, or has an old `p` override. `l` shows which — `col auto` is clean, `col #xxxxxx` is overridden |
+| Beam reads BROKEN with nothing in the way | Flip `BEAM_ACTIVE_LOW` in the sketch, then re-check with `b` |
+| Beam never triggers | Check the receiver OUT is on D4 and the emitter is powered. Send `b` and block it by hand |
+| Colour is right but one ball behind | Raise `BEAM_FLUSH` to 2 |
+| Fast drops read the empty chamber | Beam is above the window and the ball hasn't arrived yet — raise `BEAM_SETTLE_MS` to 10-20 |
+| Rapid drops get skipped | `BEAM_LOCKOUT_MS` is swallowing them. Lower it toward the real transit time |
 | Ball detected then immediately lost | You're in Training mode, which tracks live. Switch to **Live** mode — that's the one that latches and holds |
-| One ball reported two or three times | Raise `CONFIRM` to 3 |
-| Balls falling past undetected | Lower `CONFIRM` to 1, or add a ledge so the ball pauses |
+| One ball reported two or three times | With a beam: raise `BEAM_LOCKOUT_MS`. Without: raise `CONFIRM` to 3 |
+| Balls falling past undetected | Fit the break beam — this is exactly what it solves. Without one, lower `CONFIRM` to 1 or add a ledge so the ball pauses |
 | Arduino resets when the strip lights | Strip is drawing from the Arduino. Give it its own 5 V supply with a common ground |
 | Strip shows random colours | Missing common ground between the strip supply and the Arduino |
 | Everything reads near-white / saturated | Gain too high. `g 1`, then redo `w` and `k` |
