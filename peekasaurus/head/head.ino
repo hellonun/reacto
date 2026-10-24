@@ -244,6 +244,10 @@ const uint8_t GAIN_VALUES[4] = { 1, 4, 16, 60 };
 Adafruit_TCS34725 tcs(INTEG, TCS34725_GAIN_4X);
 
 uint8_t gSamples = SAMPLES_SLOW;
+// Stream a reading now and then for the page's Training readout. Each one
+// blocks beam polling for a whole integration, so it is OFF for live
+// detection and ON only while the page is actually showing that readout.
+bool    gIdleReads = true;
 bool    ledHold  = false;
 
 const int EE_CAL = 0;
@@ -591,7 +595,8 @@ void help() {
   Serial.println(F("w=white bal  k=black bal  t <name>=teach  c=classify  m=live"));
   Serial.println(F("s=stream  l=list  d <name>=delete  x=erase all  h <v>=threshold"));
   Serial.println(F("g <1|4|16|60>=gain (redo w+k after)  p <name> <rrggbb|auto>=strip colour"));
-  Serial.println(F("b=beam monitor  n=strip test  f=fall profile (sets BEAM_SETTLE_MS)"));
+  Serial.println(F("v=verdicts only (precise beam timing)  b=beam monitor"));
+  Serial.println(F("n=strip test  f=fall profile (sets BEAM_SETTLE_MS)"));
 }
 
 /* ========================= COMMANDS ========================= */
@@ -689,7 +694,7 @@ uint16_t liveModeBeam(bool doClassify, bool &fellBack) {
 
       // Keep the page's Training readout alive while nothing is dropping.
       // Skipped while a ball is in the beam so the trigger stays responsive.
-      if (!doClassify && (int32_t)(millis() - nextIdleRead) >= 0) {
+      if (!doClassify && gIdleReads && (int32_t)(millis() - nextIdleRead) >= 0) {
         Reading m; measure(m);
         printReading(m);
         nextIdleRead = millis() + 120;
@@ -759,8 +764,6 @@ void liveMode(bool doClassify) {
   ledHold = true;
   ledOn(true);
   delay(LED_WARMUP_MS);
-
-  beamLearn();
 
   if (doClassify) Serial.print(F("live classify"));
   else            Serial.print(F("live stream (fast)"));
@@ -926,8 +929,9 @@ void handle(char *line) {
     }
 
     case 'c': { setSpeed(false); Reading m; measure(m); classify(m, true); break; }
-    case 'm': liveMode(true);  break;
-    case 's': liveMode(false); break;
+    case 'm': gIdleReads = false; liveMode(true);  break;
+    case 's': gIdleReads = true;  liveMode(false); break;  // + Training readout
+    case 'v': gIdleReads = false; liveMode(false); break;  // verdicts only
     case 'l': listAll(); break;
 
     case 'd': {
