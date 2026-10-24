@@ -91,11 +91,17 @@ const bool     BEAM_AUTO_POLARITY = true;  // learn "clear" from the resting
                                         // state when live mode starts. Keep
                                         // the chamber EMPTY at that moment.
 const bool     BEAM_ACTIVE_LOW = true;  // only used if AUTO_POLARITY is false
-const uint16_t BEAM_SETTLE_MS  = 0;     // break -> read delay; raise if the
-                                        // beam sits ABOVE the sensor window
+// Break -> read delay. The beam catches the ball's LEADING EDGE; its body
+// needs a few more ms to swing into the sensor's view. Measured with 'f' on
+// this rig: chamber still dark at t=23, ball peaks at t=34, gone by t=64.
+// 22 puts the 24ms read window over [22,46] - squarely on the pass.
+// Re-run 'f' if the drop height or the beam position changes.
+const uint16_t BEAM_SETTLE_MS  = 22;
 const uint8_t  BEAM_FLUSH      = 1;     // stale integrations to discard (below)
-const uint16_t BEAM_LOCKOUT_MS = 250;   // ignore re-triggers: beam chatter and
-                                        // a bouncing ball both break it twice
+// Ignore re-triggers. The 'f' trace shows this ball bouncing back through
+// the sensor at t=120-196 and again at t=202-278, so a 250ms lockout would
+// let the third pass count as a second ball. 400 covers the whole sequence.
+const uint16_t BEAM_LOCKOUT_MS = 400;
 // An unwired or dead beam looks exactly like a beam that never sees a ball:
 // nothing triggers and the head goes quiet. If no edge at all arrives within
 // this long, say so and fall back to free-running detection for the rest of
@@ -142,6 +148,14 @@ const bool     AUTO_LIVE        = true;
 // not guessed. The cost of 1 is that a half-in-frame reading can be
 // reported, which the beam exists to eliminate.
 const uint8_t CONFIRM = 1;
+
+// How much BRIGHTNESS counts against hue when matching. Brightness varies a
+// lot on a falling ball - the 'f' trace had the same ball at C=65, C=40 and
+// C=165 on three passes - while its chromaticity barely moved. Lower this
+// toward 0 if balls read correct-but-dim and still miss; the cost is that
+// white, grey and black become indistinguishable, since they differ only in
+// brightness. 0 is right if every ball is a saturated colour.
+const float LUM_WEIGHT = 0.15;
 
 /* ========================= TUNING ========================= */
 // ONE integration time for everything. The sensor's maximum count scales
@@ -396,7 +410,7 @@ int freeSlot() {
 
 float distanceTo(const ColorClass &c, const Reading &m) {
   float dr = c.r - m.r, dg = c.g - m.g, db = c.b - m.b, dl = c.lum - m.lum;
-  return sqrt(dr*dr + dg*dg + db*db + 0.15f * dl * dl);
+  return sqrt(dr*dr + dg*dg + db*db + LUM_WEIGHT * dl * dl);
 }
 
 void teach(const char *name, const Reading &m) {
@@ -555,7 +569,7 @@ void listAll() {
       float dg = classes[i].g - classes[j].g;
       float db = classes[i].b - classes[j].b;
       float dl = classes[i].lum - classes[j].lum;
-      float d = sqrt(dr*dr + dg*dg + db*db + 0.15f*dl*dl);
+      float d = sqrt(dr*dr + dg*dg + db*db + LUM_WEIGHT*dl*dl);
       Serial.print(' '); Serial.print(classes[i].name);
       Serial.print(F(" <-> "));  Serial.print(classes[j].name);
       Serial.print(F("  "));     Serial.print(d, 4);
