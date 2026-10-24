@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colour bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Neutral only. The sample is the sole source of colour on this page. */
+    --field:#7b7b7b;        /* 18% grey card behind the sample */
+    --panel:#f3f3f1;
+    --panel-2:#e7e7e4;
+    --line:#cfcfca;
+    --ink:#22242a;
+    --ink-2:#5c5f66;
+    --ink-3:#8b8e94;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:var(--panel-2);
+    font-size:15px;
+    line-height:1.5;
+  }
+  button{font:inherit;color:inherit}
+
+  .app{
+    display:grid;
+    grid-template-rows:auto 1fr auto;
+    height:100%;
+    max-width:1180px;
+    margin:0 auto;
+    background:var(--panel);
+    border-inline:1px solid var(--line);
+  }
+
+  /* ---------- header ---------- */
+  header{
+    display:flex;align-items:center;gap:1rem;
+    padding:.85rem 1.25rem;
+    border-bottom:1px solid var(--line);
+  }
+  h1{font-size:1rem;font-weight:600;margin:0;letter-spacing:-.01em}
+
+  .modes{display:flex;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+  .modes button{
+    border:none;background:transparent;cursor:pointer;
+    padding:.3rem .8rem;font-size:.82rem;font-weight:500;color:var(--ink-2);
+  }
+  .modes button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+  .modes button:hover:not([aria-pressed="true"]){background:var(--panel-2)}
+
+  .port{
+    margin-left:auto;
+    font-family:var(--mono);font-size:.8rem;color:var(--ink-2);
+    display:flex;align-items:center;gap:.5rem;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
+  .dot.on{background:var(--ink)}
+  .btn{
+    border:1px solid var(--ink);background:transparent;
+    padding:.35rem .85rem;border-radius:2px;cursor:pointer;
+    font-size:.85rem;font-weight:500;
+  }
+  .btn:hover:not(:disabled){background:var(--ink);color:var(--panel)}
+  .btn:disabled{border-color:var(--line);color:var(--ink-3);cursor:not-allowed}
+  .btn.quiet{border-color:var(--line)}
+  .btn.quiet:hover:not(:disabled){background:var(--ink-2);border-color:var(--ink-2)}
+  :focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  /* ---------- main split ---------- */
+  .main{display:grid;grid-template-columns:1fr 340px;min-height:0}
+  body[data-mode="live"] .main{grid-template-columns:1fr}
+  body[data-mode="live"] .side{display:none}
+  body[data-mode="live"] .log{display:none}
+  @media (max-width:860px){.main{grid-template-columns:1fr}}
+
+  /* ---------- sample field ---------- */
+  .field{
+    position:relative;
+    background:var(--field);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:1.5rem;padding:2rem 1.5rem;min-height:360px;
+  }
+  .ball{
+    width:min(46vh,260px);aspect-ratio:1;border-radius:50%;
+    background:#9a9a9a;border:none;padding:0;cursor:pointer;
+    box-shadow:inset -18px -22px 44px rgba(0,0,0,.28),
+               inset 14px 16px 30px rgba(255,255,255,.22),
+               0 10px 26px rgba(0,0,0,.25);
+    transition:background .18s linear,opacity .18s linear;
+  }
+  body[data-mode="live"] .ball{width:min(56vh,340px)}
+  @media (prefers-reduced-motion:reduce){.ball{transition:none}}
+  .ball.idle{opacity:.45}
+  .ball.resting{
+    opacity:1;
+    border:1px solid rgba(255,255,255,.22);
+    box-shadow:inset -12px -14px 30px rgba(0,0,0,.10),
+               inset 10px 12px 24px rgba(255,255,255,.10),
+               0 4px 14px rgba(0,0,0,.10);
+  }
+
+  .verdict{text-align:center;color:#fff}
+  .verdict .name{
+    font-size:1.75rem;font-weight:600;letter-spacing:-.02em;
+    text-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  body[data-mode="live"] .verdict .name{font-size:2.5rem}
+  .verdict .name.idle{color:rgba(255,255,255,.55);font-weight:400}
+  .verdict .sub{
+    font-family:var(--mono);font-size:.78rem;
+    color:rgba(255,255,255,.72);margin-top:.15rem;
+  }
+
+  .history{display:flex;gap:.4rem;min-height:22px;flex-wrap:wrap;justify-content:center;max-width:340px}
+  .history i{width:20px;height:20px;border-radius:50%;box-shadow:inset -3px -4px 8px rgba(0,0,0,.3)}
+
+  .tallies{display:none;gap:1.1rem;flex-wrap:wrap;justify-content:center;font-family:var(--mono);font-size:.8rem;color:rgba(255,255,255,.8)}
+  body[data-mode="live"] .tallies{display:flex}
+  .tallies span{display:flex;align-items:center;gap:.4rem}
+  .tallies i{width:11px;height:11px;border-radius:50%}
+
+  .clearbtn{
+    display:none;
+    border:1px solid rgba(255,255,255,.45);background:transparent;
+    color:rgba(255,255,255,.85);border-radius:2px;cursor:pointer;
+    padding:.25rem .7rem;font-size:.78rem;
+  }
+  .clearbtn:hover{background:rgba(255,255,255,.15)}
+  body[data-mode="live"] .clearbtn{display:inline-block}
+
+  /* ---------- colour picker popover ---------- */
+  .picker{
+    position:absolute;z-index:20;
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    box-shadow:0 12px 32px rgba(0,0,0,.3);
+    padding:.85rem;width:250px;
+  }
+  .picker[hidden]{display:none}
+  .picker h3{margin:0 0 .6rem;font-size:.85rem;font-weight:600}
+  .swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:.35rem;margin-bottom:.7rem}
+  .swatches button{
+    aspect-ratio:1;border-radius:50%;border:1px solid rgba(0,0,0,.18);
+    cursor:pointer;padding:0;
+  }
+  .swatches button[aria-pressed="true"]{outline:2px solid var(--ink);outline-offset:2px}
+  .picker .custom{display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem}
+  .picker input[type=color]{
+    width:38px;height:28px;padding:0;border:1px solid var(--line);
+    border-radius:2px;background:none;cursor:pointer;
+  }
+  .picker .hex{font-family:var(--mono);font-size:.78rem;color:var(--ink-2)}
+  .picker .foot{display:flex;gap:.4rem}
+  .picker .foot .btn{flex:1;font-size:.78rem;padding:.28rem .5rem}
+
+  /* ---------- side panel ---------- */
+  .side{border-left:1px solid var(--line);overflow-y:auto;min-height:0}
+  @media (max-width:860px){.side{border-left:none;border-top:1px solid var(--line)}}
+  section{padding:1.1rem 1.25rem;border-bottom:1px solid var(--line)}
+  h2{font-size:.85rem;font-weight:600;margin:0 0 .2rem}
+  .hint{font-size:.78rem;color:var(--ink-2);margin:0 0 .75rem}
+  .row{display:flex;gap:.5rem}
+  .row .btn{flex:1}
+
+  input[type=text]{
+    font:inherit;flex:1;min-width:0;
+    padding:.35rem .5rem;border:1px solid var(--line);border-radius:2px;
+    background:#fff;color:var(--ink);
+  }
+  input[type=range]{width:100%;accent-color:var(--ink)}
+
+  .readout{
+    font-family:var(--mono);font-size:.78rem;color:var(--ink-2);
+    display:grid;grid-template-columns:auto 1fr;gap:.1rem .75rem;
+  }
+  .readout b{font-weight:400;color:var(--ink-3)}
+
+  ul.classes{list-style:none;margin:0;padding:0}
+  ul.classes li{display:flex;align-items:center;gap:.6rem;padding:.35rem 0;border-top:1px solid var(--line)}
+  ul.classes li:first-child{border-top:none}
+  ul.classes .sw{
+    width:20px;height:20px;border-radius:50%;flex:none;padding:0;cursor:pointer;
+    border:1px solid rgba(0,0,0,.18);
+    box-shadow:inset -3px -4px 7px rgba(0,0,0,.28);
+  }
+  ul.classes .nm{flex:1;font-size:.9rem}
+  ul.classes .n{font-family:var(--mono);font-size:.75rem;color:var(--ink-3)}
+  ul.classes .x{border:none;background:none;cursor:pointer;color:var(--ink-3);padding:.1rem .3rem;font-size:1rem;line-height:1}
+  ul.classes .x:hover{color:var(--ink)}
+  .empty{font-size:.82rem;color:var(--ink-3);margin:0}
+
+  label.check{display:flex;align-items:center;gap:.45rem;font-size:.82rem;color:var(--ink-2)}
+
+  /* ---------- log ---------- */
+  .log{border-top:1px solid var(--line);background:var(--panel-2)}
+  .log summary{cursor:pointer;padding:.5rem 1.25rem;font-size:.8rem;color:var(--ink-2)}
+  .log pre{
+    margin:0;padding:0 1.25rem .75rem;max-height:170px;overflow:auto;
+    font-family:var(--mono);font-size:.72rem;line-height:1.45;color:var(--ink-2);
+    white-space:pre-wrap;word-break:break-word;
+  }
+
+  .unsupported{padding:2.5rem 1.5rem;max-width:44ch;margin:0 auto;text-align:center}
+</style>
+</head>
+<body data-mode="train">
+
+<div class="app" id="app" hidden>
+  <header>
+    <h1>Colour bench</h1>
+    <div class="modes" role="group" aria-label="Mode">
+      <button id="mTrain" aria-pressed="true">Training</button>
+      <button id="mLive" aria-pressed="false">Live</button>
+    </div>
+    <div class="port"><span class="dot" id="dot"></span><span id="status">Not connected</span></div>
+    <button class="btn" id="connect">Connect</button>
+  </header>
+
+  <div class="main">
+    <div class="field" id="field">
+      <button class="ball idle" id="ball" title="Click to set this colour's appearance"></button>
+      <div class="verdict">
+        <div class="name idle" id="name">Waiting for a ball</div>
+        <div class="sub" id="sub">&nbsp;</div>
+      </div>
+      <div class="history" id="history"></div>
+      <div class="tallies" id="tallies"></div>
+      <button class="clearbtn" id="clear">Clear readout</button>
+
+      <div class="picker" id="picker" hidden>
+        <h3 id="pickerTitle">Colour</h3>
+        <div class="swatches" id="swatches"></div>
+        <div class="custom">
+          <input type="color" id="pickerInput" value="#888888">
+          <span class="hex" id="pickerHex">#888888</span>
+        </div>
+        <div class="foot">
+          <button class="btn quiet" id="pickerReset">Use measured</button>
+          <button class="btn" id="pickerDone">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <section>
+        <h2>Calibrate</h2>
+        <p class="hint">Set the brightness range. Do this once, or after you move the sensor.</p>
+        <div class="row">
+          <button class="btn quiet" id="wb" disabled>White balance</button>
+          <button class="btn quiet" id="kb" disabled>Black balance</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Teach a colour</h2>
+        <p class="hint">Hold the ball still, teach it, rotate a quarter turn, teach again. Four or five times.</p>
+        <div class="row">
+          <input type="text" id="tname" placeholder="orange" autocomplete="off" maxlength="11">
+          <button class="btn" id="teach" disabled style="flex:0 0 auto">Teach</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Known colours</h2>
+        <p class="hint" id="sep">&nbsp;</p>
+        <ul class="classes" id="classes"></ul>
+        <p class="empty" id="noclasses">Nothing taught yet.</p>
+      </section>
+
+      <section>
+        <h2>Match threshold</h2>
+        <p class="hint">How close a reading must be before it gets a name. <span id="thval" style="font-family:var(--mono)"></span></p>
+        <input type="range" id="thresh" min="0.02" max="0.25" step="0.005" value="0.08" disabled>
+      </section>
+
+      <section style="border-bottom:none">
+        <h2>Display</h2>
+        <label class="check">
+          <input type="checkbox" id="boost" checked>
+          Brighten the swatch to full intensity
+        </label>
+        <div class="readout" style="margin-top:.7rem">
+          <b>rgb</b><span id="rRGB">&mdash;</span>
+          <b>chroma</b><span id="rCHR">&mdash;</span>
+          <b>lum</b><span id="rLUM">&mdash;</span>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <details class="log">
+    <summary>Serial log</summary>
+    <pre id="log"></pre>
+  </details>
+</div>
+
+<div class="unsupported" id="unsupported" hidden>
+  <h1>This page needs Web Serial</h1>
+  <p>Open it in Chrome, Edge, or Opera on a desktop machine. Firefox and Safari don't implement the API.</p>
+  <p>It also has to be served over <code>http://localhost</code> or <code>https</code>. From the folder holding this file, run <code>python3 -m http.server 8000</code> and open <code>http://localhost:8000/colour-bench.html</code>.</p>
+</div>
+
+<script>
+"use strict";
+
+const LUM_WEIGHT = 0.15;   // must match the sketch
+// NOTE: detection timing now lives on the board only. Change CONFIRM in the
+// sketch; there is deliberately no copy here, so the two cannot drift apart.
+const HOLD_MS    = 2000;   // how long a result stays up after the ball leaves
+const BAUD       = 115200;
+
+// Canonical colour per class name - must match the NAMED table in the sketch
+// so the screen and the strip agree. Precedence: an explicit picker choice,
+// then this table, then the measured colour.
+const NAMED = {
+  white:"#ffffff", red:"#e61e28", orange:"#ff780a", yellow:"#ffd214",
+  green:"#1ebe3c", blue:"#146ef0", cyan:"#00c8d7", purple:"#8c46e6",
+  violet:"#8c46e6", pink:"#ff78b4", brown:"#965a2d", black:"#141414",
+};
+
+const PRESETS = Object.values(NAMED).filter((v, i, a) => a.indexOf(v) === i);
+
+const $ = id => document.getElementById(id);
+
+if (!("serial" in navigator)) $("unsupported").hidden = false;
+else $("app").hidden = false;
+
+/* ------------------------------------------------------------------ state */
+let port = null, writer = null, reader = null, readDone = null;
+let rxBuffer = "";
+let streaming = false;
+let collector = null;
+let classes = [];
+let threshold = 0.08;
+let lastReading = null;
+let cand = null, agree = 0, stable = null;
+let uiDirty = false;
+
+let mode = "train";
+let liveHit = null;            // { name, colour } - the last ball live mode reported
+let holdTimer = null;          // clears liveHit once the chamber has been empty a while
+let tally = new Map();
+let custom = loadCustom();     // class name -> hex, chosen by the user
+let pickerFor = null;
+
+const encoder = new TextEncoder();
+
+function loadCustom(){
+  try { return new Map(Object.entries(JSON.parse(localStorage.getItem("ballColours") || "{}"))); }
+  catch { return new Map(); }
+}
+function saveCustom(){
+  try { localStorage.setItem("ballColours", JSON.stringify(Object.fromEntries(custom))); }
+  catch { /* private mode, or file:// - colours just won't persist */ }
+}
+
+/* --------------------------------------------------------------- plumbing */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+let chain = Promise.resolve();
+function queue(fn) {
+  const next = chain.then(fn, fn);
+  chain = next.catch(() => {});
+  return next;
+}
+
+function log(line, dir) {
+  const pre = $("log");
+  pre.textContent += (dir === "tx" ? "> " : "  ") + line + "\n";
+  const lines = pre.textContent.split("\n");
+  if (lines.length > 300) pre.textContent = lines.slice(-300).join("\n");
+  pre.scrollTop = pre.scrollHeight;
+}
+
+async function send(text) {
+  if (!writer) return;
+  log(text.trim() || "(blank)", "tx");
+  await writer.write(encoder.encode(text));
+}
+
+/* ------------------------------------------------------------ connection */
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: BAUD });
+  } catch (err) {
+    if (err && err.name === "NotFoundError") return;
+    setStatus("Could not open the port: " + err.message, false);
+    return;
+  }
+
+  writer = port.writable.getWriter();
+  readLoop();
+
+  setStatus("Waiting for the board to boot", true);
+  await sleep(2200);
+
+  // If the sketch has AUTO_LIVE on, it is already classifying. A bare newline
+  // drops it back to the command prompt; if it is already there, it's a no-op.
+  await send("\n");
+  await sleep(350);
+
+  setControls(true);
+  $("connect").textContent = "Disconnect";
+  setStatus("Connected", true);
+
+  await queue(async () => {
+    await refreshClasses();
+    await startStream();
+  });
+}
+
+async function disconnect() {
+  streaming = false;
+  try { if (writer) { await send("\n"); await sleep(120); } } catch {}
+  try { if (reader) await reader.cancel(); } catch {}
+  try { if (readDone) await readDone.catch(() => {}); } catch {}
+  try { if (writer) writer.releaseLock(); } catch {}
+  try { if (port) await port.close(); } catch {}
+  port = writer = reader = readDone = null;
+  setControls(false);
+  $("connect").textContent = "Connect";
+  setStatus("Not connected", false);
+  render();
+}
+
+async function readLoop() {
+  const decoder = new TextDecoderStream();
+  readDone = port.readable.pipeTo(decoder.writable).catch(() => {});
+  reader = decoder.readable.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      rxBuffer += value;
+      let i;
+      while ((i = rxBuffer.indexOf("\n")) >= 0) {
+        const line = rxBuffer.slice(0, i).replace(/\r$/, "");
+        rxBuffer = rxBuffer.slice(i + 1);
+        handleLine(line);
+      }
+    }
+  } catch { /* port went away */ }
+}
+
+function setStatus(text, on) {
+  $("status").textContent = text;
+  $("dot").classList.toggle("on", !!on);
+}
+function setControls(on) {
+  for (const id of ["wb", "kb", "teach", "thresh"]) $(id).disabled = !on;
+}
+
+/* ------------------------------------------------------------- line parse */
+const RE_READ  = /RGB255\s+(-?[\d.]+),(-?[\d.]+),(-?[\d.]+).*?chroma\s+([\d.]+),([\d.]+),([\d.]+).*?lum\s+([\d.]+)/;
+const RE_CLASS = /^\s*(\S+)\s+([\d.]+),\s*([\d.]+),\s*([\d.]+)\s+lum\s+([\d.]+)\s+n=(\d+)(?:\s+col\s+(#[0-9a-fA-F]{6}|auto))?/;
+const RE_THR   = /^threshold\s+([\d.]+)/;
+const RE_VERDICT = /^@@\s+(\S+)(?:\s+([\d.]+))?/;   // the board's own decision
+
+function handleLine(line) {
+  const isReading = RE_READ.test(line);
+
+  // While a command is in flight, readings are noise: they must not land in
+  // the collector (they would keep resetting the quiet timer) and there is no
+  // point parsing a backlog of them.
+  if (collector) {
+    if (!isReading && !RE_VERDICT.test(line)) {
+      collector.lines.push(line); collector.lastAt = Date.now(); log(line, "rx");
+    }
+    return;
+  }
+
+  if (isReading) {
+    const m = line.match(RE_READ);
+    lastReading = { rgb:[+m[1],+m[2],+m[3]], r:+m[4], g:+m[5], b:+m[6], lum:+m[7] };
+    uiDirty = true;
+    return;
+  }
+
+  const v = line.match(RE_VERDICT);
+  if (v) { handleVerdict(v[1], v[2] ? +v[2] : 0); return; }
+
+  log(line, "rx");
+}
+
+// The board has decided. Live mode shows exactly this, so the screen always
+// agrees with the strip - no second opinion, no marginal calls going two ways.
+function handleVerdict(name, d) {
+  if (name === "-") {                       // chamber empty: hold, then clear
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => { liveHit = null; holdTimer = null; render(); }, HOLD_MS);
+    return;
+  }
+  clearTimeout(holdTimer);
+  holdTimer = null;
+
+  const c = classes.find(x => x.name.toLowerCase() === name.toLowerCase());
+  const colour = c ? displayColour(c) : (NAMED[name.toLowerCase()] || "#999999");
+  liveHit = { name, colour, d };
+  tally.set(name, (tally.get(name) || 0) + 1);
+  pushHistory(colour);
+  renderTallies();
+  render();
+}
+
+/* --------------------------------------------------------- classification */
+function distance(c, rd) {
+  const dr = c.r - rd.r, dg = c.g - rd.g, db = c.b - rd.b, dl = c.lum - rd.lum;
+  return Math.sqrt(dr*dr + dg*dg + db*db + LUM_WEIGHT*dl*dl);
+}
+function match(rd) {
+  let best = null, bd = Infinity, second = null, sd = Infinity;
+  for (const c of classes) {
+    const d = distance(c, rd);
+    if (d < bd) { sd = bd; second = best; bd = d; best = c; }
+    else if (d < sd) { sd = d; second = c; }
+  }
+  return { best, bd, second, sd };
+}
+function isIdle(res) {
+  return !res.best || res.bd > threshold || res.best.name.toLowerCase() === "empty";
+}
+
+// Live detection now comes from the board (see handleVerdict). The match()
+// helpers above remain in use by Training mode, which shows the instantaneous
+// reading as an instrument view rather than a latched decision.
+
+/* --------------------------------------------------------------- painting */
+function swatch(rgb, boost) {
+  let [r, g, b] = rgb.map(v => Math.max(0, v));
+  if (boost) {
+    const k = 255 / Math.max(r, g, b, 1);
+    r *= k; g *= k; b *= k;
+  }
+  const c = v => Math.min(255, Math.round(v));
+  return `rgb(${c(r)}, ${c(g)}, ${c(b)})`;
+}
+function measuredColour(c) {
+  const sum = c.lum * 765;
+  return swatch([c.r * sum, c.g * sum, c.b * sum], true);
+}
+// What the page shows for a class: an explicit pick, else the canonical
+// colour for that name, else what the sensor actually saw.
+function displayColour(c) {
+  return custom.get(c.name) || NAMED[c.name.toLowerCase()] || measuredColour(c);
+}
+
+function pushHistory(colour) {
+  const strip = $("history");
+  const i = document.createElement("i");
+  i.style.background = colour;
+  strip.prepend(i);
+  while (strip.children.length > 10) strip.lastChild.remove();
+}
+
+function renderTallies() {
+  const box = $("tallies");
+  box.innerHTML = "";
+  for (const [name, n] of tally) {
+    const c = classes.find(x => x.name === name);
+    const span = document.createElement("span");
+    const dot = document.createElement("i");
+    dot.style.background = c ? displayColour(c) : "#999";
+    span.append(dot, document.createTextNode(`${name} ${n}`));
+    box.append(span);
+  }
+}
+
+function render() {
+  const ball = $("ball"), name = $("name"), sub = $("sub");
+
+  if (mode === "live") {
+    if (!liveHit) {
+      ball.style.background = "rgba(255,255,255,.07)";
+      ball.className = "ball resting";
+      name.className = "name idle";
+      name.textContent = port ? "Waiting for a ball" : "Not connected";
+      sub.innerHTML = "&nbsp;";
+    } else {
+      ball.style.background = liveHit.colour;
+      ball.className = "ball";
+      name.className = "name";
+      name.textContent = liveHit.name;
+      sub.textContent = liveHit.d.toFixed(3);
+    }
+    return;
+  }
+
+  /* training: honest live instrument */
+  if (!lastReading) {
+    ball.style.background = "#9a9a9a";
+    ball.className = "ball idle";
+    name.className = "name idle";
+    name.textContent = port ? "Waiting for a ball" : "Not connected";
+    sub.innerHTML = "&nbsp;";
+    return;
+  }
+
+  const rd = lastReading;
+  ball.style.background = swatch(rd.rgb, $("boost").checked);
+
+  const res = match(rd);
+  const idle = isIdle(res);
+  ball.className = "ball" + (idle ? " idle" : "");
+  name.className = "name" + (idle ? " idle" : "");
+
+  if (!classes.length) {
+    name.textContent = "Teach a colour to begin";
+    sub.innerHTML = "&nbsp;";
+  } else if (idle) {
+    name.textContent = res.best ? "No match" : "Waiting for a ball";
+    sub.textContent = res.best ? `closest ${res.best.name} \u00b7 ${res.bd.toFixed(3)}` : "\u00a0";
+  } else {
+    name.textContent = res.best.name;
+    sub.textContent = res.second
+      ? `${res.bd.toFixed(3)} \u00b7 next ${res.second.name} ${res.sd.toFixed(3)}`
+      : res.bd.toFixed(3);
+  }
+
+  $("rRGB").textContent = rd.rgb.map(v => Math.round(v)).join("  ");
+  $("rCHR").textContent = [rd.r, rd.g, rd.b].map(v => v.toFixed(3)).join("  ");
+  $("rLUM").textContent = rd.lum.toFixed(3);
+}
+
+function frame() {
+  if (uiDirty || mode === "live") { uiDirty = false; render(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* --------------------------------------------------------- colour picker */
+function buildSwatches() {
+  const box = $("swatches");
+  box.innerHTML = "";
+  for (const hex of PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.style.background = hex;
+    b.title = hex;
+    b.setAttribute("aria-label", "Use " + hex);
+    b.onclick = () => { applyColour(hex); closePicker(); };
+    box.append(b);
+  }
+}
+buildSwatches();
+
+function openPicker(className, anchorEl) {
+  if (!className) return;
+  pickerFor = className;
+  const p = $("picker");
+  $("pickerTitle").textContent = "Show " + className + " as";
+
+  const current = custom.get(className) || "#888888";
+  $("pickerInput").value = /^#[0-9a-f]{6}$/i.test(current) ? current : "#888888";
+  $("pickerHex").textContent = $("pickerInput").value;
+  markSelected(custom.get(className));
+
+  p.hidden = false;
+  const fieldBox = $("field").getBoundingClientRect();
+  const aBox = anchorEl.getBoundingClientRect();
+  let left = aBox.left - fieldBox.left + aBox.width / 2 - p.offsetWidth / 2;
+  let top  = aBox.top  - fieldBox.top  + aBox.height + 10;
+  left = Math.max(10, Math.min(left, fieldBox.width - p.offsetWidth - 10));
+  if (top + p.offsetHeight > fieldBox.height - 10) top = Math.max(10, aBox.top - fieldBox.top - p.offsetHeight - 10);
+  p.style.left = left + "px";
+  p.style.top = top + "px";
+}
+
+function markSelected(hex) {
+  for (const b of $("swatches").children)
+    b.setAttribute("aria-pressed", String(!!hex && b.title.toLowerCase() === hex.toLowerCase()));
+}
+
+// Dragging the native picker fires dozens of events a second. Only the final
+// value per class goes to the board, and each send briefly pauses the stream.
+const pushTimers = new Map();
+function pushColour(name, value) {
+  if (!port) return;
+  clearTimeout(pushTimers.get(name));
+  pushTimers.set(name, setTimeout(() => {
+    pushTimers.delete(name);
+    queue(() => exec(`p ${name} ${value}`, { quiet: 300, max: 3000, until: /^colour|not found/i }));
+  }, 400));
+}
+
+function applyColour(hex) {
+  if (!pickerFor) return;
+  custom.set(pickerFor, hex);
+  saveCustom();
+  pushColour(pickerFor, hex.replace("#", ""));
+  $("pickerInput").value = hex;
+  $("pickerHex").textContent = hex;
+  markSelected(hex);
+  if (liveHit && liveHit.name === pickerFor) liveHit.colour = hex;
+  renderClasses();
+  renderTallies();
+  render();
+}
+
+function closePicker() { $("picker").hidden = true; pickerFor = null; }
+
+$("pickerInput").oninput = e => applyColour(e.target.value);
+$("pickerDone").onclick = closePicker;
+$("pickerReset").onclick = () => {
+  if (!pickerFor) return;
+  custom.delete(pickerFor);
+  saveCustom();
+  pushColour(pickerFor, "auto");
+  const c = classes.find(x => x.name === pickerFor);
+  if (liveHit && liveHit.name === pickerFor && c) liveHit.colour = measuredColour(c);
+  markSelected(null);
+  renderClasses(); renderTallies(); render();
+};
+
+$("ball").onclick = e => {
+  e.stopPropagation();
+  const target = mode === "live"
+    ? (liveHit && liveHit.name)
+    : (lastReading && !isIdle(match(lastReading)) ? match(lastReading).best.name : null);
+  if (!target) {
+    setStatus(mode === "live" ? "Drop a ball first" : "No ball detected", !!port);
+    setTimeout(() => setStatus(port ? "Connected" : "Not connected", !!port), 1800);
+    return;
+  }
+  openPicker(target, $("ball"));
+};
+
+document.addEventListener("click", e => {
+  if (!$("picker").hidden && !$("picker").contains(e.target)) closePicker();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closePicker(); });
+
+/* ------------------------------------------------------------- commands */
+async function startStream() { await send("s\n"); streaming = true; }
+
+// Stopping the stream has to happen before any blocking dialog, otherwise the
+// board keeps talking into a buffer the page is not draining.
+//
+// We wait for the board to confirm with its "stopped" line and resend if it
+// doesn't: strip.show() blocks interrupts briefly on the Arduino, and a stop
+// newline arriving in that window can be lost. Extra newlines are harmless -
+// at the command prompt they are just empty lines.
+async function pauseStream() {
+  if (!streaming) return false;
+  streaming = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const lines = [];
+    collector = { lines, lastAt: Date.now() };
+    await send("\n");
+    const t0 = Date.now();
+    while (Date.now() - t0 < 700) {
+      await sleep(40);
+      if (lines.some(l => /^stopped/.test(l))) { collector = null; await sleep(60); return true; }
+    }
+    collector = null;
+  }
+  return true;
+}
+async function resumeStream() { await startStream(); }
+
+// Run one command and gather its reply. `until` ends the wait as soon as the
+// expected line shows up; otherwise we wait for the board to fall quiet.
+async function exec(cmd, { quiet = 500, max = 9000, until = null, manageStream = true } = {}) {
+  let wasStreaming = false;
+  if (manageStream) wasStreaming = await pauseStream();
+
+  const lines = [];
+  collector = { lines, lastAt: Date.now() };
+  await send(cmd + "\n");
+
+  const t0 = Date.now();
+  while (Date.now() - t0 < max) {
+    await sleep(50);
+    if (until && lines.some(l => until.test(l))) break;
+    if (lines.length && Date.now() - collector.lastAt > quiet) break;
+  }
+  collector = null;
+
+  if (manageStream && wasStreaming) await resumeStream();
+  return lines;
+}
+
+// The Arduino is the source of truth for display colours, since it drives the
+// strip. localStorage is only a cache, plus a one-time migration source for
+// picks made before the board could store them.
+async function refreshClasses(opts = {}) {
+  const manage = opts.manageStream !== false;
+  const was = manage ? await pauseStream() : false;
+
+  const lines = await exec("l", { quiet: 450, max: 6000, manageStream: false });
+  const found = [];
+  let tightest = Infinity;
+
+  for (const line of lines) {
+    const t = line.match(RE_THR);
+    if (t) { threshold = +t[1]; continue; }
+    if (line.includes("<->")) {
+      const s = line.match(/<->\s+\S+\s+([\d.]+)/);
+      if (s) tightest = Math.min(tightest, +s[1]);
+      continue;
+    }
+    if (line.includes("pulses") || line.includes("---")) continue;
+    const c = line.match(RE_CLASS);
+    if (c) found.push({ name:c[1], r:+c[2], g:+c[3], b:+c[4], lum:+c[5], n:+c[6], col:c[7] || null });
+  }
+
+  for (const c of found) {
+    if (c.col && c.col !== "auto") {
+      custom.set(c.name, c.col.toLowerCase());           // board wins
+    } else if (c.col === "auto" && custom.has(c.name)) {
+      // Board has nothing, browser has an old pick: push it up once.
+      const hex = custom.get(c.name).replace("#", "");
+      await exec(`p ${c.name} ${hex}`, { quiet: 300, max: 3000, until: /^colour|not found/i, manageStream: false });
+    }
+  }
+  saveCustom();
+
+  classes = found;
+  renderClasses(tightest);
+  renderTallies();
+  $("thresh").value = threshold;
+  $("thval").textContent = threshold.toFixed(3);
+
+  if (was) await resumeStream();
+}
+
+let lastTightest = Infinity;
+function renderClasses(tightest) {
+  if (tightest !== undefined) lastTightest = tightest;
+  const ul = $("classes");
+  ul.innerHTML = "";
+  $("noclasses").hidden = classes.length > 0;
+
+  for (const c of classes) {
+    const li = document.createElement("li");
+
+    const sw = document.createElement("button");
+    sw.className = "sw";
+    sw.type = "button";
+    sw.style.background = displayColour(c);
+    sw.title = "Set the colour shown for " + c.name;
+    sw.setAttribute("aria-label", "Set the colour shown for " + c.name);
+    sw.onclick = e => { e.stopPropagation(); openPicker(c.name, sw); };
+
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = c.name;
+
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = c.n + (c.n === 1 ? " sample" : " samples");
+
+    const x = document.createElement("button");
+    x.className = "x";
+    x.type = "button";
+    x.textContent = "\u00d7";
+    x.title = "Forget " + c.name;
+    x.setAttribute("aria-label", "Forget " + c.name);
+    x.onclick = () => queue(async () => {
+      const was = await pauseStream();
+      if (!confirm(`Forget "${c.name}" and all its samples?`)) {
+        if (was) await resumeStream();
+        return;
+      }
+      await exec("d " + c.name, { quiet: 350, max: 4000, until: /deleted|not found/i, manageStream: false });
+      await refreshClasses({ manageStream: false });
+      if (was) await resumeStream();
+    });
+
+    li.append(sw, nm, n, x);
+    ul.append(li);
+  }
+
+  $("sep").textContent = classes.length < 2 ? "\u00a0"
+    : isFinite(lastTightest) ? `Closest pair sits ${lastTightest.toFixed(3)} apart.` : "\u00a0";
+}
+
+/* ----------------------------------------------------------------- modes */
+function setMode(next) {
+  mode = next;
+  document.body.dataset.mode = next;
+  $("mTrain").setAttribute("aria-pressed", String(next === "train"));
+  $("mLive").setAttribute("aria-pressed", String(next === "live"));
+  closePicker();
+  render();
+}
+$("mTrain").onclick = () => setMode("train");
+$("mLive").onclick  = () => setMode("live");
+
+$("clear").onclick = e => {
+  e.stopPropagation();
+  clearTimeout(holdTimer);
+  holdTimer = null;
+  liveHit = null;
+  stable = cand = null;
+  agree = 0;
+  tally.clear();
+  $("history").innerHTML = "";
+  renderTallies();
+  render();
+};
+
+/* ------------------------------------------------------------------- wire */
+$("connect").onclick = () => (port ? disconnect() : connect());
+
+async function calibrate(cmd, prompt, until, label) {
+  const was = await pauseStream();          // stop the board talking first
+  if (!confirm(prompt)) { if (was) await resumeStream(); return; }
+  setStatus(label, true);
+  await exec(cmd, { quiet: 600, max: 12000, until, manageStream: false });
+  if (was) await resumeStream();
+  setStatus("Connected", true);
+}
+
+$("wb").onclick = () => queue(() => calibrate(
+  "w",
+  "Put the white reference in place at the same height a ball sits, then continue.",
+  /white pulses/i,
+  "Reading white"
+));
+
+$("kb").onclick = () => queue(() => calibrate(
+  "k",
+  "Press matte black card against the sensor face, then continue.",
+  /black pulses/i,
+  "Reading black"
+));
+
+$("teach").onclick = () => queue(async () => {
+  const raw = $("tname").value.trim();
+  if (!raw) { $("tname").focus(); return; }
+  const name = raw.replace(/\s+/g, "_").slice(0, 11);
+
+  const was = await pauseStream();
+  setStatus("Teaching " + name, true);
+  await exec("t " + name, { quiet: 600, max: 12000, until: /taught|no free class/i, manageStream: false });
+  await refreshClasses({ manageStream: false });
+  if (was) await resumeStream();
+  setStatus("Connected", true);
+});
+
+$("tname").addEventListener("keydown", e => { if (e.key === "Enter") $("teach").click(); });
+
+let thrTimer = null;
+$("thresh").oninput = e => {
+  threshold = +e.target.value;
+  $("thval").textContent = threshold.toFixed(3);
+  clearTimeout(thrTimer);
+  thrTimer = setTimeout(() => queue(() => exec("h " + threshold.toFixed(3), { quiet: 300, max: 2500 })), 450);
+};
+
+$("boost").onchange = () => { uiDirty = true; };
+
+navigator.serial.addEventListener?.("disconnect", () => { if (port) disconnect(); });
+window.addEventListener("beforeunload", () => { if (port) disconnect(); });
+
+render();
+</script>
+</body>
+</html>
