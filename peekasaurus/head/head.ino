@@ -87,7 +87,10 @@ const int8_t  PIN_BEAM  = 4;     // break-beam receiver. -1 = no beam fitted
 // says exactly when a ball is in front of the sensor, so one trustworthy
 // reading replaces the CONFIRM debounce. Set PIN_BEAM to -1 to go back to
 // free-running detection.
-const bool     BEAM_ACTIVE_LOW = true;  // most receivers pull LOW when broken
+const bool     BEAM_AUTO_POLARITY = true;  // learn "clear" from the resting
+                                        // state when live mode starts. Keep
+                                        // the chamber EMPTY at that moment.
+const bool     BEAM_ACTIVE_LOW = true;  // only used if AUTO_POLARITY is false
 const uint16_t BEAM_SETTLE_MS  = 0;     // break -> read delay; raise if the
                                         // beam sits ABOVE the sensor window
 const uint8_t  BEAM_FLUSH      = 1;     // stale integrations to discard (below)
@@ -447,9 +450,20 @@ bool isEmptyClass(int idx) {
 
 /* ========================= BEAM ========================= */
 
+// Whichever level the pin sits at with the chamber empty IS "clear", so the
+// polarity of the receiver stops mattering. Learned when live mode starts
+// and when 'b' runs. Set BEAM_AUTO_POLARITY false to force it by hand.
+uint8_t beamClearLevel = HIGH;
+
+void beamLearn() {
+  if (PIN_BEAM < 0) return;
+  if (BEAM_AUTO_POLARITY) beamClearLevel = digitalRead(PIN_BEAM);
+  else                    beamClearLevel = BEAM_ACTIVE_LOW ? HIGH : LOW;
+}
+
 bool beamBroken() {
   if (PIN_BEAM < 0) return false;
-  return (digitalRead(PIN_BEAM) == LOW) == BEAM_ACTIVE_LOW;
+  return digitalRead(PIN_BEAM) != beamClearLevel;
 }
 
 // getRawData hands back the integration that ALREADY finished, so the first
@@ -544,7 +558,7 @@ void help() {
   Serial.println(F("w=white bal  k=black bal  t <name>=teach  c=classify  m=live"));
   Serial.println(F("s=stream  l=list  d <name>=delete  x=erase all  h <v>=threshold"));
   Serial.println(F("g <1|4|16|60>=gain (redo w+k after)  p <name> <rrggbb|auto>=strip colour"));
-  Serial.println(F("b=beam monitor (check wiring and polarity)"));
+  Serial.println(F("b=beam monitor (check wiring)  n=strip test (check LEDs)"));
 }
 
 /* ========================= COMMANDS ========================= */
@@ -697,10 +711,16 @@ void liveMode(bool doClassify) {
   ledOn(true);
   delay(LED_WARMUP_MS);
 
+  beamLearn();
+
   if (doClassify) Serial.print(F("live classify"));
   else            Serial.print(F("live stream (fast)"));
-  Serial.println(PIN_BEAM >= 0 ? F(" [beam] - drop balls, send any line to stop")
-                               : F(" - drop balls, send any line to stop"));
+  if (PIN_BEAM >= 0) {
+    Serial.print(F(" [beam on D")); Serial.print(PIN_BEAM);
+    Serial.print(F(", clear=")); Serial.print(beamClearLevel == HIGH ? F("HIGH") : F("LOW"));
+    Serial.print(F("]"));
+  }
+  Serial.println(F(" - drop balls, send any line to stop"));
 
   uint16_t count = (PIN_BEAM >= 0) ? liveModeBeam(doClassify) : liveModeFree(doClassify);
 
@@ -765,10 +785,29 @@ void handle(char *line) {
       break;
     }
 
+    case 'n': {
+      Serial.print(F("strip test on D")); Serial.print(PIN_STRIP);
+      Serial.print(F(", ")); Serial.print(NUM_PIXELS);
+      Serial.println(F(" pixels: red, green, blue, white, off"));
+      const uint32_t test[4] = { 0xFF0000UL, 0x00FF00UL, 0x0000FFUL, 0xFFFFFFUL };
+      for (uint8_t i = 0; i < 4; i++) {
+        strip.fill(strip.gamma32(test[i]));
+        strip.show();
+        delay(600);
+      }
+      strip.clear(); strip.show();
+      Serial.println(F("done. Nothing lit? check NUM_PIXELS, DIN on D2, the strip's"));
+      Serial.println(F("own 5V supply, and that its GND is tied to the Arduino's."));
+      break;
+    }
+
     case 'b': {
       if (PIN_BEAM < 0) { Serial.println(F("no beam fitted (PIN_BEAM = -1)")); break; }
-      Serial.println(F("beam monitor - block it with your hand; send any line to stop"));
-      Serial.print(F("now: ")); Serial.println(beamBroken() ? F("BROKEN") : F("clear"));
+      Serial.println(F("beam monitor - keep the chamber EMPTY, then block it by hand"));
+      beamLearn();
+      Serial.print(F("resting level taken as clear: "));
+      Serial.println(beamClearLevel == HIGH ? F("HIGH") : F("LOW"));
+      Serial.println(F("send any line to stop"));
       bool last = beamBroken();
       uint16_t edges = 0;
       while (true) {
@@ -783,7 +822,7 @@ void handle(char *line) {
         }
       }
       Serial.print(F("stopped - ")); Serial.print(edges); Serial.println(F(" edges"));
-      Serial.println(F("If it reads BROKEN when clear, flip BEAM_ACTIVE_LOW in the sketch."));
+      if (!edges) Serial.println(F("No edges at all: check the receiver OUT is on D4 and the emitter is powered."));
       break;
     }
 
@@ -880,7 +919,7 @@ void setup() {
   if (PIN_LED >= 0) { pinMode(PIN_LED, OUTPUT); digitalWrite(PIN_LED, LOW); }
   // Pull-up suits an open-collector receiver and is harmless on a push-pull
   // one; without it a disconnected input floats and triggers on noise.
-  if (PIN_BEAM >= 0) pinMode(PIN_BEAM, BEAM_ACTIVE_LOW ? INPUT_PULLUP : INPUT);
+  if (PIN_BEAM >= 0) { pinMode(PIN_BEAM, INPUT_PULLUP); delay(5); beamLearn(); }
 
   Serial.begin(115200);
   while (!Serial) { ; }
