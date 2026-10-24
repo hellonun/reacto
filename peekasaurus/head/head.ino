@@ -30,6 +30,13 @@
      3V3 -> leave unconnected. It is an OUTPUT, do not feed 5V into it.
      INT -> leave unconnected.
 
+  BREAK BEAM (optional but recommended - set PIN_BEAM = -1 if not fitted)
+     Receiver OUT -> D4
+     VCC          -> 5V       (emitter too)
+     GND          -> GND
+     Mount the beam so it crosses the ball's path AT or JUST ABOVE the
+     sensor window. Send 'b' to check wiring and polarity.
+
   NEOPIXEL STRIP
      DIN -> D2      through a 300-500 ohm resistor
      5V  -> 5V      a 1000uF cap across 5V/GND at the strip is advised
@@ -73,6 +80,19 @@
 /* ========================= PIN MAP ========================= */
 const int8_t  PIN_LED   = 3;     // -1 if you hard-wire the module LEDs on
 const uint8_t PIN_STRIP = 2;
+const int8_t  PIN_BEAM  = 4;     // break-beam receiver. -1 = no beam fitted
+
+/* ========================= BREAK BEAM ========================= */
+// With a beam fitted, the head stops guessing from colour alone: the break
+// says exactly when a ball is in front of the sensor, so one trustworthy
+// reading replaces the CONFIRM debounce. Set PIN_BEAM to -1 to go back to
+// free-running detection.
+const bool     BEAM_ACTIVE_LOW = true;  // most receivers pull LOW when broken
+const uint16_t BEAM_SETTLE_MS  = 0;     // break -> read delay; raise if the
+                                        // beam sits ABOVE the sensor window
+const uint8_t  BEAM_FLUSH      = 1;     // stale integrations to discard (below)
+const uint16_t BEAM_LOCKOUT_MS = 250;   // ignore re-triggers: beam chatter and
+                                        // a bouncing ball both break it twice
 
 /* ========================= STRIP ========================= */
 const uint16_t NUM_PIXELS = 64;
@@ -425,6 +445,29 @@ bool isEmptyClass(int idx) {
   return idx >= 0 && strcasecmp(classes[idx].name, "empty") == 0;
 }
 
+/* ========================= BEAM ========================= */
+
+bool beamBroken() {
+  if (PIN_BEAM < 0) return false;
+  return (digitalRead(PIN_BEAM) == LOW) == BEAM_ACTIVE_LOW;
+}
+
+// getRawData hands back the integration that ALREADY finished, so the first
+// read after a ball arrives still describes the empty chamber. Throwing that
+// one away is what makes a beam-triggered reading trustworthy rather than
+// merely fast.
+void flushIntegrations(uint8_t n) {
+  uint16_t r, g, b, c;
+  for (uint8_t i = 0; i < n; i++) tcs.getRawData(&r, &g, &b, &c);
+}
+
+// The board's decision, for the web page to display.
+void sendVerdict(int idx, float d) {
+  Serial.print(F("@@ "));
+  if (idx >= 0) { Serial.print(classes[idx].name); Serial.print(' '); Serial.println(d, 4); }
+  else          { Serial.println('-'); }
+}
+
 void printMatch(int best, float bd, int second, float sd) {
   if (bd <= cal.threshold) Serial.print(F(">> "));
   else                     Serial.print(F("?? UNKNOWN, closest "));
@@ -501,6 +544,7 @@ void help() {
   Serial.println(F("w=white bal  k=black bal  t <name>=teach  c=classify  m=live"));
   Serial.println(F("s=stream  l=list  d <name>=delete  x=erase all  h <v>=threshold"));
   Serial.println(F("g <1|4|16|60>=gain (redo w+k after)  p <name> <rrggbb|auto>=strip colour"));
+  Serial.println(F("b=beam monitor (check wiring and polarity)"));
 }
 
 /* ========================= COMMANDS ========================= */
@@ -521,18 +565,83 @@ bool serialLine(char *buf, uint8_t len) {
   return false;
 }
 
-void liveMode(bool doClassify) {
-  setSpeed(true);
-  ledHold = true;
-  ledOn(true);
-  delay(LED_WARMUP_MS);
+// Beam-triggered detection. The break says a ball is there, so there is
+// nothing to debounce and nothing to infer from the colour: one reading per
+// ball, taken at the right moment. Latency is the beam edge (microseconds)
+// plus the flush and the read, instead of CONFIRM whole readings.
+uint16_t liveModeBeam(bool doClassify) {
+  uint16_t count = 0;
+  bool     lit    = false;
+  bool     armed  = !beamBroken();
+  uint32_t lockoutUntil = 0;
+  uint32_t nextIdleRead = 0;
 
+  while (true) {
+    char dummy[40];
+    if (serialLine(dummy, sizeof(dummy))) break;
+    stripTick();
+
+    bool broken = beamBroken();
+
+    // --- ball arriving -----------------------------------------------
+    if (broken && armed && (int32_t)(millis() - lockoutUntil) >= 0) {
+      armed = false;
+      lockoutUntil = millis() + BEAM_LOCKOUT_MS;
+
+      if (BEAM_SETTLE_MS) delay(BEAM_SETTLE_MS);
+      flushIntegrations(BEAM_FLUSH);
+
+      Reading m; measure(m);
+      float bd, sd; int second;
+      int best = bestMatch(m, bd, second, sd);
+      if (best < 0) {
+        if (doClassify) { Serial.println(F("? nothing taught yet")); break; }
+        continue;
+      }
+
+      if (bd <= cal.threshold && !isEmptyClass(best)) {
+        count++;
+        lit = true;
+        stripLight(best);
+        if (doClassify) {
+          Serial.print(F("#")); Serial.print(count); Serial.print(F("  "));
+          printMatch(best, bd, second, sd);
+        } else {
+          sendVerdict(best, bd);
+        }
+      } else if (doClassify) {
+        Serial.print(F("   ")); printMatch(best, bd, second, sd);
+      }
+      continue;
+    }
+
+    // --- chamber clear -------------------------------------------------
+    if (!broken) {
+      if (lit) {
+        lit = false;
+        stripRelease();
+        if (!doClassify) sendVerdict(-1, 0);
+      }
+      armed = true;
+
+      // Keep the page's Training readout alive while nothing is dropping.
+      // Skipped while a ball is in the beam so the trigger stays responsive.
+      if (!doClassify && (int32_t)(millis() - nextIdleRead) >= 0) {
+        Reading m; measure(m);
+        printReading(m);
+        nextIdleRead = millis() + 120;
+      }
+    }
+  }
+  return count;
+}
+
+// Free-running detection, used when no beam is fitted: read continuously and
+// debounce on CONFIRM agreeing readings.
+uint16_t liveModeFree(bool doClassify) {
   int     stable = -2, cand = -2;
   uint8_t agree = 0;
   uint16_t count = 0;
-
-  if (doClassify) Serial.println(F("live classify - drop balls, send any line to stop"));
-  else            Serial.println(F("live stream (fast) - send any line to stop"));
 
   while (true) {
     char dummy[40];
@@ -573,16 +682,27 @@ void liveMode(bool doClassify) {
         stripRelease();
       }
 
-      // Verdict line for the web page. The board is the single source of
-      // truth: the page displays this rather than classifying again, so the
-      // screen and the strip can never disagree on a marginal call.
-      if (!doClassify) {
-        Serial.print(F("@@ "));
-        if (stable >= 0) { Serial.print(classes[stable].name); Serial.print(' '); Serial.println(bd, 4); }
-        else             { Serial.println('-'); }
-      }
+      // The board is the single source of truth: the page displays this
+      // rather than classifying again, so the screen and the strip can never
+      // disagree on a marginal call.
+      if (!doClassify) sendVerdict(stable, bd);
     }
   }
+  return count;
+}
+
+void liveMode(bool doClassify) {
+  setSpeed(true);
+  ledHold = true;
+  ledOn(true);
+  delay(LED_WARMUP_MS);
+
+  if (doClassify) Serial.print(F("live classify"));
+  else            Serial.print(F("live stream (fast)"));
+  Serial.println(PIN_BEAM >= 0 ? F(" [beam] - drop balls, send any line to stop")
+                               : F(" - drop balls, send any line to stop"));
+
+  uint16_t count = (PIN_BEAM >= 0) ? liveModeBeam(doClassify) : liveModeFree(doClassify);
 
   stripRelease();
   ledHold = false;
@@ -642,6 +762,28 @@ void handle(char *line) {
       Reading m; measure(m);
       printReading(m);
       teach(arg, m);
+      break;
+    }
+
+    case 'b': {
+      if (PIN_BEAM < 0) { Serial.println(F("no beam fitted (PIN_BEAM = -1)")); break; }
+      Serial.println(F("beam monitor - block it with your hand; send any line to stop"));
+      Serial.print(F("now: ")); Serial.println(beamBroken() ? F("BROKEN") : F("clear"));
+      bool last = beamBroken();
+      uint16_t edges = 0;
+      while (true) {
+        char dummy[40];
+        if (serialLine(dummy, sizeof(dummy))) break;
+        bool now = beamBroken();
+        if (now != last) {
+          last = now;
+          edges++;
+          Serial.print(millis()); Serial.print(F("ms  "));
+          Serial.println(now ? F("BROKEN") : F("clear"));
+        }
+      }
+      Serial.print(F("stopped - ")); Serial.print(edges); Serial.println(F(" edges"));
+      Serial.println(F("If it reads BROKEN when clear, flip BEAM_ACTIVE_LOW in the sketch."));
       break;
     }
 
@@ -736,6 +878,9 @@ void handle(char *line) {
 
 void setup() {
   if (PIN_LED >= 0) { pinMode(PIN_LED, OUTPUT); digitalWrite(PIN_LED, LOW); }
+  // Pull-up suits an open-collector receiver and is harmless on a push-pull
+  // one; without it a disconnected input floats and triggers on noise.
+  if (PIN_BEAM >= 0) pinMode(PIN_BEAM, BEAM_ACTIVE_LOW ? INPUT_PULLUP : INPUT);
 
   Serial.begin(115200);
   while (!Serial) { ; }
