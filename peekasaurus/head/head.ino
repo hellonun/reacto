@@ -96,6 +96,11 @@ const uint16_t BEAM_SETTLE_MS  = 0;     // break -> read delay; raise if the
 const uint8_t  BEAM_FLUSH      = 1;     // stale integrations to discard (below)
 const uint16_t BEAM_LOCKOUT_MS = 250;   // ignore re-triggers: beam chatter and
                                         // a bouncing ball both break it twice
+// An unwired or dead beam looks exactly like a beam that never sees a ball:
+// nothing triggers and the head goes quiet. If no edge at all arrives within
+// this long, say so and fall back to free-running detection for the rest of
+// the session, so the head keeps working. 0 disables the fallback.
+const uint16_t BEAM_FALLBACK_MS = 8000;
 
 /* ========================= STRIP ========================= */
 const uint16_t NUM_PIXELS = 64;
@@ -126,11 +131,17 @@ const uint16_t HOLD_MS          = 2000;
 const bool     AUTO_LIVE        = false;
 
 /* ========================= DETECTION ========================= */
-// Readings that must agree before a ball is reported. Each reading costs
-// one integration (~24ms) plus I2C overhead, so this is the detection
-// latency: 2 is about 60ms, 3 about 90ms. A ball falling past is only in
-// view for roughly 60-100ms, so 3 often misses it entirely.
-const uint8_t CONFIRM = 2;
+// ONLY used when no beam is fitted (PIN_BEAM = -1, or the beam fallback
+// fired). A beam makes this irrelevant: the break already proves a ball is
+// there, so no agreement is needed.
+//
+// Readings that must agree before a ball is reported. Each costs one
+// integration (~24ms) plus I2C overhead, so this IS the detection latency:
+// 1 is ~30ms, 2 is ~60ms, 3 is ~90ms. A ball falling past is in view for
+// only 60-100ms, so anything above 1 misses balls on this rig - measured,
+// not guessed. The cost of 1 is that a half-in-frame reading can be
+// reported, which the beam exists to eliminate.
+const uint8_t CONFIRM = 1;
 
 /* ========================= TUNING ========================= */
 // ONE integration time for everything. The sensor's maximum count scales
@@ -583,12 +594,16 @@ bool serialLine(char *buf, uint8_t len) {
 // nothing to debounce and nothing to infer from the colour: one reading per
 // ball, taken at the right moment. Latency is the beam edge (microseconds)
 // plus the flush and the read, instead of CONFIRM whole readings.
-uint16_t liveModeBeam(bool doClassify) {
+uint16_t liveModeBeam(bool doClassify, bool &fellBack) {
   uint16_t count = 0;
   bool     lit    = false;
   bool     armed  = !beamBroken();
   uint32_t lockoutUntil = 0;
   uint32_t nextIdleRead = 0;
+
+  bool     lastBeam  = beamBroken();
+  bool     edgeSeen  = false;
+  uint32_t startedAt = millis();
 
   while (true) {
     char dummy[40];
@@ -596,6 +611,18 @@ uint16_t liveModeBeam(bool doClassify) {
     stripTick();
 
     bool broken = beamBroken();
+
+    if (broken != lastBeam) { lastBeam = broken; edgeSeen = true; }
+
+    // Nothing from the beam at all: treat it as not fitted rather than
+    // leaving the head mute.
+    if (!edgeSeen && BEAM_FALLBACK_MS &&
+        (int32_t)(millis() - startedAt) > (int32_t)BEAM_FALLBACK_MS) {
+      Serial.println(F("! no beam activity - check D4 and the emitter ('b' to test)."));
+      Serial.println(F("! falling back to free-running detection for this session."));
+      fellBack = true;
+      return count;
+    }
 
     // --- ball arriving -----------------------------------------------
     if (broken && armed && (int32_t)(millis() - lockoutUntil) >= 0) {
@@ -722,7 +749,14 @@ void liveMode(bool doClassify) {
   }
   Serial.println(F(" - drop balls, send any line to stop"));
 
-  uint16_t count = (PIN_BEAM >= 0) ? liveModeBeam(doClassify) : liveModeFree(doClassify);
+  uint16_t count = 0;
+  if (PIN_BEAM >= 0) {
+    bool fellBack = false;
+    count = liveModeBeam(doClassify, fellBack);
+    if (fellBack) count += liveModeFree(doClassify);
+  } else {
+    count = liveModeFree(doClassify);
+  }
 
   stripRelease();
   ledHold = false;
