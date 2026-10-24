@@ -4,7 +4,7 @@ Phone-powered cardboard creations for kids. Build something out of cardboard, pu
 
 ## Creations
 
-### 👀 Eyes (`/eyes/`)
+### 👀 Eyes (`/phone/eyes/`)
 The whole interface is landscape. The first screen asks kids to turn the phone sideways and lock rotation.
 If the phone is locked in portrait (iPhone's rotation lock only locks portrait), the page rotates itself and
 detects which way the phone is turned; use **⇅ Flip** on the first screen if it comes out upside down.
@@ -21,7 +21,7 @@ Controls while playing:
 
 Tip: hold it in the position it will sit in the creation when pressing Go (that becomes "looking straight").
 
-### 🏎️ Engine (`/engine/`)
+### 🏎️ Engine (`/phone/engine/`)
 A top view of an engine to place on a cardboard car. Same landscape intro as Eyes (sideways, lock rotation, volume up).
 
 Pick one of 3 engines, each with its own look and synthesized sound:
@@ -35,6 +35,6 @@ On Android the phone also vibrates with the engine.
 
 ## Hosting on GitHub Pages
 Settings → Pages → Source: **Deploy from a branch** → Branch: `main`, folder `/ (root)` → Save.
-The site will be at `https://hellonun.github.io/reacto/` and the eyes at `https://hellonun.github.io/reacto/eyes/`.
+The site will be at `https://hellonun.github.io/reacto/`, the eyes at `https://hellonun.github.io/reacto/phone/eyes/`, and the engine at `https://hellonun.github.io/reacto/phone/engine/`.
 
 Motion sensors only work over HTTPS, which GitHub Pages provides. On iPhone the page will ask for permission to use motion when you press Go.
