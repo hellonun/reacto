@@ -311,7 +311,8 @@
 <script>
 "use strict";
 
-const LUM_WEIGHT = 0.15;   // must match the sketch
+const LUM_WEIGHT = 0;      // must match the sketch (hue only - brightness
+                           // varies too much on a falling ball to trust)
 // NOTE: detection timing now lives on the board only. Change CONFIRM in the
 // sketch; there is deliberately no copy here, so the two cannot drift apart.
 const HOLD_MS    = 2000;   // how long a result stays up after the ball leaves

@@ -155,7 +155,15 @@ const uint8_t CONFIRM = 1;
 // toward 0 if balls read correct-but-dim and still miss; the cost is that
 // white, grey and black become indistinguishable, since they differ only in
 // brightness. 0 is right if every ball is a saturated colour.
-const float LUM_WEIGHT = 0.15;
+// 0 = match on hue alone. Set from measured data: in-flight readings of the
+// SAME ball ranged C=65 to C=165 on three passes while its chromaticity
+// moved less than 0.04, so brightness here is noise, not signal. At 0.15 a
+// hue-perfect read whose brightness differed by 0.3 from training already
+// scored 0.116 - more than the whole threshold - which is why correct
+// colours kept coming back UNKNOWN.
+// Raise it above 0 only if you add white, grey or black balls, which differ
+// from each other ONLY in brightness.
+const float LUM_WEIGHT = 0.0;
 
 /* ========================= TUNING ========================= */
 // ONE integration time for everything. The sensor's maximum count scales
