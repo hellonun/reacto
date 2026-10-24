@@ -128,7 +128,7 @@ const uint16_t HOLD_MS          = 2000;
 // But see WIRING.md - after that, a byte of serial noise leaves it parked at
 // the prompt with the strip dark until it is power-cycled.
 // ===========================================================================
-const bool     AUTO_LIVE        = false;
+const bool     AUTO_LIVE        = true;
 
 /* ========================= DETECTION ========================= */
 // ONLY used when no beam is fitted (PIN_BEAM = -1, or the beam fallback
@@ -569,7 +569,7 @@ void help() {
   Serial.println(F("w=white bal  k=black bal  t <name>=teach  c=classify  m=live"));
   Serial.println(F("s=stream  l=list  d <name>=delete  x=erase all  h <v>=threshold"));
   Serial.println(F("g <1|4|16|60>=gain (redo w+k after)  p <name> <rrggbb|auto>=strip colour"));
-  Serial.println(F("b=beam monitor (check wiring)  n=strip test (check LEDs)"));
+  Serial.println(F("b=beam monitor  n=strip test  f=fall profile (sets BEAM_SETTLE_MS)"));
 }
 
 /* ========================= COMMANDS ========================= */
@@ -816,6 +816,49 @@ void handle(char *line) {
       Reading m; measure(m);
       printReading(m);
       teach(arg, m);
+      break;
+    }
+
+    case 'f': {
+      // Measures how long after the beam breaks the ball actually reaches
+      // the sensor window - the number BEAM_SETTLE_MS needs to be when the
+      // beam sits above the window.
+      if (PIN_BEAM < 0) { Serial.println(F("needs a beam (PIN_BEAM = -1)")); break; }
+      Serial.println(F("fall profile - drop ONE ball, or send a line to cancel"));
+
+      ledHold = true; ledOn(true); delay(LED_WARMUP_MS);
+      beamLearn();
+
+      // 2.4ms integration: the counts land on a different scale and are
+      // noisy, but we only care WHEN the colour changes, not what it is.
+      tcs.setIntegrationTime(TCS34725_INTEGRATIONTIME_2_4MS);
+      { uint16_t a, b2, c2, d2; tcs.getRawData(&a, &b2, &c2, &d2); }
+
+      bool cancelled = false;
+      while (!beamBroken()) {
+        char dummy[40];
+        if (serialLine(dummy, sizeof(dummy))) { cancelled = true; break; }
+      }
+
+      if (!cancelled) {
+        uint32_t t0 = millis();
+        Serial.println(F("t(ms)\tR\tG\tB\tC"));
+        for (uint8_t i = 0; i < 48; i++) {
+          uint16_t r, g, b2, c2;
+          tcs.getRawData(&r, &g, &b2, &c2);
+          Serial.print(millis() - t0); Serial.print('\t');
+          Serial.print(r);  Serial.print('\t');
+          Serial.print(g);  Serial.print('\t');
+          Serial.print(b2); Serial.print('\t');
+          Serial.println(c2);
+        }
+        Serial.println(F("Find the row where C jumps and R/G/B separate."));
+        Serial.println(F("That t is your BEAM_SETTLE_MS. Run it a few times."));
+      }
+
+      tcs.setIntegrationTime(INTEG);
+      { uint16_t a, b2, c2, d2; tcs.getRawData(&a, &b2, &c2, &d2); }
+      ledHold = false; ledOn(false);
       break;
     }
 
