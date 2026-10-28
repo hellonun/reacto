@@ -1,25 +1,12 @@
 /*
   ============================================================================
-  Peekasaurus HEAD  -  ball colour trainer & classifier  (+ NeoPixel strip)
+  TCS34725  -  Ping-pong ball colour trainer & classifier  (+ NeoPixel strip)
   ============================================================================
 
-  A ball drops into the head, a TCS34725 reads its colour, and the NeoPixel
-  strip lights up in that colour. Colours are taught, not hard-coded: you
-  show the sensor each ball and it learns what that ball looks like under
-  this particular lighting and geometry.
-
-  See WIRING.md in this folder for the full build and training guide.
-
-  ----------------------------------------------------------------------------
-  RUNNING WITH OR WITHOUT A COMPUTER  ->  the AUTO_LIVE switch below
-  ----------------------------------------------------------------------------
-    AUTO_LIVE = false   needs colour-bench.html (or a Serial Monitor) to
-                        start it. Use while setting up and training.
-    AUTO_LIVE = true    classifies by itself from power-up. The strip works
-                        with nothing plugged in. Use for the finished build.
-  Train first with false, then set true and re-upload. Training survives the
-  re-upload - it lives in EEPROM, not in the sketch.
-  ----------------------------------------------------------------------------
+  Ported from the TCS3200 version. The sensor is now I2C and returns 16-bit
+  counts directly, so all the pulse-width timing is gone. Everything above
+  that - white/black balance, chromaticity, teaching, nearest-centroid
+  matching, the strip - works exactly as before.
 
   WIRING (Arduino Uno/Nano)
      VIN -> 5V         (board has its own regulator + level shifting)
@@ -83,24 +70,7 @@ const uint16_t NUM_PIXELS = 64;
 // to the Nano's. Raise this only once the strip has its own supply.
 const uint8_t  STRIP_BRIGHTNESS = 40;
 const uint16_t HOLD_MS          = 2000;
-
-// ===========================================================================
-// AUTO_LIVE  -  the one switch that decides whether you need a computer
-// ===========================================================================
-//   false  The sketch waits for a command. colour-bench.html (or a Serial
-//          Monitor) has to start it. The strip stays dark until then.
-//          USE THIS WHILE CALIBRATING AND TRAINING.
-//
-//   true   The sketch starts classifying the moment it powers up. The strip
-//          works standalone - no laptop, no browser, just USB power.
-//          USE THIS FOR THE FINISHED BUILD.
-//
-// The page still works with true: connecting sends a newline, which drops
-// the sketch back to its command prompt so you can train or re-calibrate.
-// But see WIRING.md - after that, a byte of serial noise leaves it parked at
-// the prompt with the strip dark until it is power-cycled.
-// ===========================================================================
-const bool     AUTO_LIVE        = false;
+const bool     AUTO_LIVE        = true; // true = classify at power-up
 
 /* ========================= DETECTION ========================= */
 // Readings that must agree before a ball is reported. Each reading costs
@@ -746,7 +716,7 @@ void setup() {
   strip.clear();
   strip.show();
 
-  Serial.println(F("\nPeekasaurus head - ball colour trainer"));
+  Serial.println(F("\nTCS34725 ball colour trainer"));
 
   if (!tcs.begin()) {
     Serial.println(F("! TCS34725 not found - check SDA=A4, SCL=A5, VIN=5V, GND"));
